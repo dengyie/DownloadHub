@@ -42,7 +42,7 @@ go build -o cardgw .
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o cardgw-linux-amd64 .
 ```
 
-## 卡模型（两种，resourghace 优先）
+## 卡模型（两种，资源绑定优先）
 
 | 模型 | CLI | 授权判断 | 适用 |
 |---|---|---|---|
