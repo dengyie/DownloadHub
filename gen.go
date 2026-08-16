@@ -31,7 +31,8 @@ func RunGen(args []string, dbPath string) {
 	flagArgs := args[1:]
 
 	fs := flag.NewFlagSet("cardgw", flag.ExitOnError)
-	var quota, group, prefix, resource, days, card string
+	var quota, group, prefix, resource, days, card, db string
+	fs.StringVar(&db, "db", "", "SQLite 数据库路径(默认 ./cards.db)")
 	fs.StringVar(&quota, "quota", "10", "剩余下载次数")
 	fs.StringVar(&group, "group", "member", "guest|member|vip (旧前缀模式用)")
 	fs.StringVar(&prefix, "prefix", "", "允许路径前缀,逗号分隔(旧模式)")
@@ -39,13 +40,16 @@ func RunGen(args []string, dbPath string) {
 	fs.StringVar(&days, "days", "30", "有效期天数,0=永久")
 	fs.StringVar(&card, "card", "", "卡号(revokecard 用)")
 	_ = fs.Parse(flagArgs)
+	if db != "" {
+		dbPath = db
+	}
 
-	db, err := openDB(dbPath)
+	dbConn, err := openDB(dbPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open db:", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer dbConn.Close()
 
 	switch cmd {
 	case "gencard":
@@ -61,7 +65,7 @@ func RunGen(args []string, dbPath string) {
 			// 都没指定时: 默认按 group 走前缀模式(兼容旧行为)
 			prefixes = defaultPrefixes(group)
 		}
-		card, err := CreateCard(db, q, group, prefixes, resources, ttl)
+		card, err := CreateCard(dbConn, q, group, prefixes, resources, ttl)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gencard:", err)
 			os.Exit(1)
@@ -88,14 +92,14 @@ func RunGen(args []string, dbPath string) {
 		}
 
 	case "listcards":
-		listCardsOut(db)
+		listCardsOut(dbConn)
 
 	case "revokecard":
 		if card == "" {
-			fmt.Fprintln(os.Stderr, "用法: cardgw revokecard --card <卡号>")
+			fmt.Fprintln(os.Stderr, "用法: cardgw revokecard --card <卡号> [--db <path>]")
 			os.Exit(1)
 		}
-		if err := RevokeCard(db, card); err != nil {
+		if err := RevokeCard(dbConn, card); err != nil {
 			fmt.Fprintln(os.Stderr, "revoke:", err)
 			os.Exit(1)
 		}
@@ -103,10 +107,10 @@ func RunGen(args []string, dbPath string) {
 
 	default:
 		fmt.Fprintln(os.Stderr, "用法:")
-		fmt.Fprintln(os.Stderr, "  # 绑资源(推荐): cardgw gencard --quota N --resource pub/a.zip,pub/b.txt [--days D]")
+		fmt.Fprintln(os.Stderr, "  # 绑资源(推荐): cardgw gencard --quota N --resource pub/a.zip,pub/b.txt [--days D] [--db PATH]")
 		fmt.Fprintln(os.Stderr, "  # 绑前缀(兼容): cardgw gencard --quota N --group g --prefix /pub/,/share/ [--days D]")
-		fmt.Fprintln(os.Stderr, "  cardgw listcards")
-		fmt.Fprintln(os.Stderr, "  cardgw revokecard --card <id>")
+		fmt.Fprintln(os.Stderr, "  cardgw listcards [--db PATH]")
+		fmt.Fprintln(os.Stderr, "  cardgw revokecard --card <id> [--db PATH]")
 		os.Exit(1)
 	}
 }
@@ -141,8 +145,12 @@ func listCardsOut(db *sql.DB) {
 		if c.Revoked {
 			rev = " [吊销]"
 		}
-		fmt.Printf("%s | 次数=%d | %s | %v | 到期=%s%s\n",
+		auth := fmt.Sprintf("%v", c.Prefixes)
+		if len(c.Resources) > 0 {
+			auth = fmt.Sprintf("资源=%v", c.Resources)
+		}
+		fmt.Printf("%s | 次数=%d | %s | %s | 到期=%s%s\n",
 			strings.Join([]string{c.CardID, c.Secret}, "+"), c.Quota,
-			c.PermGroup, c.Prefixes, exp, rev)
+			c.PermGroup, auth, exp, rev)
 	}
 }

@@ -56,7 +56,7 @@ $('#go').onclick=async()=>{
     if(j.code!==200){box.innerHTML='<div class="err">'+(j.msg||'验证失败')+'</div>';return}
     if(!j.resources||!j.resources.length){box.innerHTML='<div class="err">该卡未绑定资源，请使用站内下载链接</div>';return}
     let h='<p class="ok">兑换成功，剩余次数 '+j.quota+'。请选择资源下载：</p>';
-    h+=j.resources.map(x=>'<div class="res"><span>'+x.name+'</span><a href="/dl'+(x.path[0]==='/'?'':'/')+x.path+'?card='+encodeURIComponent(card)+'&key='+encodeURIComponent(key)+'">下载 →</a></div>').join('');
+    h+=j.resources.map(x=>'<div class="res"><span>'+x.name+'</span><a href="/dl'+encodeURIComponent((x.path[0]==='/'?'':'/')+x.path)+'?card='+encodeURIComponent(card)+'&key='+encodeURIComponent(key)+'">下载 →</a></div>').join('');
     box.innerHTML=h;
   }catch(e){box.innerHTML='<div class="err">网络错误，请重试</div>'}
   $('#go').disabled=false;

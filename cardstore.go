@@ -45,8 +45,31 @@ func openDB(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 兼容旧表: 若 resources 列不存在则加
-	db.Exec(`ALTER TABLE cards ADD COLUMN resources TEXT NOT NULL DEFAULT ''`)
+	// 兼容旧表: 若 resources 列不存在则加(用 PRAGMA 检查避免对已存在列重复 ALTER 报错)
+	var hasRes bool
+	rows, err := db.Query(`PRAGMA table_info(cards)`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if name == "resources" {
+			hasRes = true
+		}
+	}
+	rows.Close()
+	if !hasRes {
+		if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN resources TEXT NOT NULL DEFAULT ''`); err != nil {
+			return nil, err
+		}
+	}
 	return db, nil
 }
 

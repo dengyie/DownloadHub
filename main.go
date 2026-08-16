@@ -112,10 +112,16 @@ func runServer(cfg Config) {
 	}
 }
 
+// olClient 网关依赖的 OpenList 客户端接口(便于测试注入 fake)
+type olClient interface {
+	GetRawURL(path, password string) (string, error)
+	ensureToken() error
+}
+
 // handler HTTP handler 集合
 type handler struct {
 	db *sql.DB
-	ol *OLClient
+	ol olClient
 }
 
 func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {

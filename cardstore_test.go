@@ -163,4 +163,43 @@ func TestResourceBoundDownloadCheck(t *testing.T) {
 	}
 }
 
+// TestOpenDBMigration: 旧表(无 resources 列)自动升级到新 schema
+func TestOpenDBMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate.db"
+	// 建一个没有 resources 列的旧表
+	oldDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open old db: %v", err)
+	}
+	_, err = oldDB.Exec(`CREATE TABLE cards (
+		card_id TEXT PRIMARY KEY, secret TEXT NOT NULL, quota INTEGER NOT NULL,
+		perm_group TEXT NOT NULL DEFAULT '', prefixes TEXT NOT NULL DEFAULT '',
+		expires_at DATETIME, created_at DATETIME NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)`)
+	if err != nil {
+		oldDB.Close()
+		t.Fatalf("create old table: %v", err)
+	}
+	oldDB.Close()
+
+	// 用 openDB 打开应自动加 resources 列
+	db, err := openDB(path)
+	if err != nil {
+		t.Fatalf("openDB migrate: %v", err)
+	}
+	defer db.Close()
+	// 升级后应能用 resources 字段创建/查询资源卡
+	c, err := CreateCard(db, 2, "member", nil, []string{"pub/x.zip"}, nil)
+	if err != nil {
+		t.Fatalf("CreateCard after migrate: %v", err)
+	}
+	got, err := VerifyCard(db, c.CardID, c.Secret)
+	if err != nil {
+		t.Fatalf("verify after migrate: %v", err)
+	}
+	if !got.HasResource("pub/x.zip") {
+		t.Fatal("resources not persisted after migration")
+	}
+}
+
 var _ = os.DevNull
