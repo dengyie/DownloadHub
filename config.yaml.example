@@ -1,0 +1,16 @@
+# 卡密网关配置 (部署: /root/cardgw/config.yaml)
+# 网关监听本机回环,由 nginx 对外反代
+
+# 网关监听地址
+listen: "127.0.0.1:8080"
+
+# SQLite 卡密库路径
+db_path: "/root/cardgw/cards.db"
+
+# OpenList 底座(本机)
+openlist_url: "http://127.0.0.1:5244"
+
+# OpenList 服务账号(管理员)用于调 /api/fs/get 换签名直链
+# 密码从首启日志/文档获取
+openlist_admin_user: "admin"
+openlist_admin_pass: "CHANGE_ME"

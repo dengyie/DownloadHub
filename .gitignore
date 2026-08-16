@@ -1,0 +1,6 @@
+# 忽略部署产物与本地敏感文件
+cardgw
+cardgw-linux-amd64
+*.db
+config.yaml
+.DS_Store
