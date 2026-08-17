@@ -98,6 +98,7 @@ func runServer(cfg Config) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", gw.handleHealth)
+	mux.HandleFunc("/brand/", gw.handleBrandAsset)
 	mux.HandleFunc("/dl/", gw.handleDownload)
 	mux.HandleFunc("/redeem", gw.handleRedeemPage)
 	mux.HandleFunc("/api/redeem", gw.handleRedeemAPI)
@@ -193,6 +194,25 @@ func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	h.securityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, `{"status":"ok"}`)
+}
+
+// handleBrandAsset 内嵌品牌图标，保持单二进制部署
+func (h *handler) handleBrandAsset(w http.ResponseWriter, r *http.Request) {
+	h.securityHeaders(w)
+	w.Header().Set("Cache-Control", "public, max-age=604800")
+	switch strings.TrimPrefix(r.URL.Path, "/brand/") {
+	case "logo.png":
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(brandLogoPNG)
+	case "favicon.ico":
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Write(brandFaviconICO)
+	case "apple-touch-icon.png":
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(brandAppleTouchPNG)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func (h *handler) limited(r *http.Request, limit int) bool {
