@@ -10,13 +10,14 @@
                 兑换页 /redeem (输卡号+密钥)
                        │ POST /api/redeem
                        ▼
-用户 ── GET /dl/<path>?card=<id>&key=<secret> ──▶ [cardgw :8080]
-       │                                          │ ① 验卡:存在/未过期/次数>0/资源匹配
-       │                                          │ ② 调 OpenList /api/fs/get 拿签名直链(自动重登)
-       │                                          │ ③ 扣次数 → SQLite
+用户 ── GET /dl/<path>?token=<一次性token> ──▶ [cardgw :8080]
+       │                                          │ ① 验 token:资源绑定/未过期/未使用/卡有效
+       │                                          │ ② 调 OpenList /api/fs/get 拿签名直链
+       │                                          │ ③ 原子 claim + 扣次数 + 标记 token 已消费
        │                                          │ ④ 302 到签名直链(仅带 sign)
-       ▼                                          ▼
-  [OpenList :5244] ◀─────────────────────── /p/<path>?sign=... (防盗链,无sign 401)
+       └─ /redeem POST 卡号+密钥 → 返回每个资源的 10 分钟一次性 token
+
+旧版 `/dl/<path>?card=&key=` 仍兼容，但新兑换页不再生成此类 URL。
 ```
 
 - 网关监听 `127.0.0.1:8080`（本机回环，由 nginx 反代对外）
@@ -118,7 +119,13 @@ curl -s 127.0.0.1:8080/health     # {"status":"ok"}
 
 ## 测试
 
-`cardstore_test.go` / `openlist_test.go` 覆盖：卡创建/验卡/过期/吊销/次数扣减、资源绑定与精确授权、前缀兼容、OpenList token 失效自动重试。运行 `go test -count=1 ./...`。
+`cardstore_test.go` / `download_test.go` / `openlist_test.go` 覆盖：卡创建/验卡/过期/吊销/次数扣减、资源绑定与精确授权、前缀兼容、一次性 token 生命周期/原子 claim/重放保护、路径穿越拒绝、旧明文卡迁移 hash、OpenList token 失效自动重试。运行：
+
+```bash
+gofmt -w *.go
+go vet ./...
+go test -race -count=1 ./...
+```
 
 ## 兼容性 / 迁移
 

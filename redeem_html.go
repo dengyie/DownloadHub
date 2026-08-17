@@ -53,9 +53,8 @@ $('#go').onclick=async()=>{
     const f=new URLSearchParams();f.set('card',card);f.set('key',key);
     const r=await fetch('/api/redeem',{method:'POST',body:f});
     const j=await r.json();
-    if(j.code!==200){box.innerHTML='<div class="err">'+(j.msg||'验证失败')+'</div>';return}
-    if(!j.resources||!j.resources.length){box.innerHTML='<div class="err">该卡未绑定资源，请使用站内下载链接</div>';return}
     const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    if(j.code!==200){box.innerHTML='<div class="err">'+esc(j.msg||'验证失败')+'</div>';return}
     let h='<p class="ok">兑换成功，剩余次数 '+esc(j.quota)+'。请选择资源下载：</p>';
     h+=j.resources.map(x=>'<div class="res"><span>'+esc(x.name)+'</span><a href="'+esc(x.path)+'">下载 →</a></div>').join('');
     box.innerHTML=h;

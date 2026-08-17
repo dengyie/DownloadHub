@@ -133,8 +133,9 @@ type olClientDB interface {
 
 // rateLimiter 是轻量的进程内固定窗口限流器。多实例部署时应移到 nginx/Redis。
 type rateLimiter struct {
-	mu sync.Mutex
-	m  map[string]rateWindow
+	mu          sync.Mutex
+	m           map[string]rateWindow
+	lastCleanup time.Time
 }
 
 type rateWindow struct {
@@ -150,6 +151,17 @@ func (l *rateLimiter) allow(key string, limit int, window time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
+	if l.lastCleanup.IsZero() || now.Sub(l.lastCleanup) >= window {
+		for k, w := range l.m {
+			if now.Sub(w.start) >= window {
+				delete(l.m, k)
+			}
+		}
+		l.lastCleanup = now
+	}
+	if _, exists := l.m[key]; !exists && len(l.m) >= 10000 {
+		return false
+	}
 	w := l.m[key]
 	if w.start.IsZero() || now.Sub(w.start) >= window {
 		l.m[key] = rateWindow{start: now, n: 1}
@@ -210,6 +222,10 @@ func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if un, err := url.PathUnescape(p); err == nil {
 		p = un
 	}
+	if err := validateResourcePath(p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	q := r.URL.Query()
 	token := strings.TrimSpace(q.Get("token"))
 	var card *Card
@@ -236,8 +252,19 @@ func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	claimed := false
+	if token != "" {
+		if _, err := ClaimDownloadToken(h.db, token, "/"+p); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		claimed = true
+	}
 	rawURL, err := h.ol.GetRawURL("/"+p, "")
 	if err != nil {
+		if claimed {
+			_ = ReleaseDownloadToken(h.db, token)
+		}
 		http.Error(w, "后端取直链失败: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -248,6 +275,9 @@ func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
 		left, err = ConsumeQuota(h.db, card.CardID)
 	}
 	if err != nil {
+		if claimed {
+			_ = ReleaseDownloadToken(h.db, token)
+		}
 		http.Error(w, "扣次数失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -311,6 +341,8 @@ func (h *handler) handleRedeemAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleRedeemPage GET 兑换页(内嵌 HTML,单二进制无静态依赖)
 func (h *handler) handleRedeemPage(w http.ResponseWriter, r *http.Request) {
+	h.securityHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, redeemHTML)
 }

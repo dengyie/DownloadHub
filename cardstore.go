@@ -110,11 +110,19 @@ func openDB(path string) (*sql.DB, error) {
 		legacy = append(legacy, item)
 	}
 	rows.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
 	for _, item := range legacy {
 		sum := sha256.Sum256([]byte(item.secret))
-		if _, err := db.Exec(`UPDATE cards SET secret_hash = ?, secret = '' WHERE card_id = ?`, hex.EncodeToString(sum[:]), item.id); err != nil {
+		if _, err := tx.Exec(`UPDATE cards SET secret_hash = ?, secret = '' WHERE card_id = ?`, hex.EncodeToString(sum[:]), item.id); err != nil {
+			tx.Rollback()
 			return nil, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS download_tokens (
 		token_hash TEXT PRIMARY KEY,
@@ -129,18 +137,28 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func randomSecret(n int) string {
+func randomSecret(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // CreateCard 生成一张新卡。resources 是具体资源路径列表(新模式), prefixes 是旧前缀权限模式(兼容)。
 // 建议: 新卡用 resources, 旧卡可继续用 prefixes。
 func CreateCard(db *sql.DB, quota int, permGroup string, prefixes []string, resources []string, ttlDays *int) (*Card, error) {
+	cardID, err := randomSecret(4)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := randomSecret(8)
+	if err != nil {
+		return nil, err
+	}
 	card := &Card{
-		CardID:    randomSecret(4),
-		Secret:    randomSecret(8),
+		CardID:    cardID,
+		Secret:    secret,
 		Quota:     quota,
 		PermGroup: permGroup,
 		Prefixes:  prefixes,
@@ -152,7 +170,7 @@ func CreateCard(db *sql.DB, quota int, permGroup string, prefixes []string, reso
 		card.ExpiresAt = &et
 	}
 	sum := sha256.Sum256([]byte(card.Secret))
-	_, err := db.Exec(`INSERT INTO cards
+	_, err = db.Exec(`INSERT INTO cards
 		(card_id, secret, secret_hash, quota, perm_group, prefixes, resources, expires_at, created_at, revoked)
 		VALUES (?, '', ?, ?,?,?,?,?,?,0)`,
 		card.CardID, hex.EncodeToString(sum[:]), card.Quota, card.PermGroup,
@@ -206,14 +224,16 @@ func VerifyCard(db *sql.DB, cardID, secret string) (*Card, error) {
 
 // CreateDownloadToken 为指定卡和资源创建一次性短时下载 token。
 func CreateDownloadToken(db *sql.DB, cardID, resource string, ttl time.Duration) (string, error) {
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
+	if err := validateResourcePath(resource); err != nil {
 		return "", err
 	}
-	token := hex.EncodeToString(tokenBytes)
+	token, err := randomSecret(32)
+	if err != nil {
+		return "", err
+	}
 	hash := sha256.Sum256([]byte(token))
 	now := time.Now()
-	_, err := db.Exec(`INSERT INTO download_tokens
+	_, err = db.Exec(`INSERT INTO download_tokens
 		(token_hash, card_id, resource, expires_at, used, created_at) VALUES (?,?,?,?,0,?)`,
 		hex.EncodeToString(hash[:]), cardID, normalizeResource(resource), now.Add(ttl), now)
 	if err != nil {
@@ -226,15 +246,15 @@ func VerifyDownloadToken(db *sql.DB, token, resource string) (*Card, error) {
 	hash := sha256.Sum256([]byte(token))
 	var cardID, boundResource string
 	var expires time.Time
-	var used bool
-	err := db.QueryRow(`SELECT card_id, resource, expires_at, used FROM download_tokens WHERE token_hash = ?`, hex.EncodeToString(hash[:])).Scan(&cardID, &boundResource, &expires, &used)
+	var state int
+	err := db.QueryRow(`SELECT card_id, resource, expires_at, used FROM download_tokens WHERE token_hash = ?`, hex.EncodeToString(hash[:])).Scan(&cardID, &boundResource, &expires, &state)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("兑换链接无效")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if used || time.Now().After(expires) {
+	if state != 0 || time.Now().After(expires) {
 		return nil, errors.New("兑换链接已使用或过期")
 	}
 	if normalizeResource(boundResource) != normalizeResource(resource) {
@@ -250,6 +270,29 @@ func VerifyDownloadToken(db *sql.DB, token, resource string) (*Card, error) {
 	return card, nil
 }
 
+func ClaimDownloadToken(db *sql.DB, token, resource string) (string, error) {
+	hash := sha256.Sum256([]byte(token))
+	hashText := hex.EncodeToString(hash[:])
+	result, err := db.Exec(`UPDATE download_tokens SET used = 2 WHERE token_hash = ? AND resource = ? AND used = 0 AND expires_at > CURRENT_TIMESTAMP`, hashText, normalizeResource(resource))
+	if err != nil {
+		return "", err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if n != 1 {
+		return "", errors.New("兑换链接已使用或正在处理")
+	}
+	return hashText, nil
+}
+
+func ReleaseDownloadToken(db *sql.DB, token string) error {
+	hash := sha256.Sum256([]byte(token))
+	_, err := db.Exec(`UPDATE download_tokens SET used = 0 WHERE token_hash = ? AND used = 2`, hex.EncodeToString(hash[:]))
+	return err
+}
+
 func ConsumeDownloadToken(db *sql.DB, token string) (int, error) {
 	hash := sha256.Sum256([]byte(token))
 	hashText := hex.EncodeToString(hash[:])
@@ -260,12 +303,12 @@ func ConsumeDownloadToken(db *sql.DB, token string) (int, error) {
 	defer tx.Rollback()
 	var cardID string
 	var expires time.Time
-	var used bool
+	var used int
 	if err := tx.QueryRow(`SELECT card_id, expires_at, used FROM download_tokens WHERE token_hash = ?`, hashText).Scan(&cardID, &expires, &used); err != nil {
 		return 0, err
 	}
-	if used || time.Now().After(expires) {
-		return 0, errors.New("兑换链接已使用或过期")
+	if used != 2 || time.Now().After(expires) {
+		return 0, errors.New("兑换链接未被当前请求占用或已过期")
 	}
 	res, err := tx.Exec(`UPDATE cards SET quota = quota - 1 WHERE card_id = ? AND quota > 0`, cardID)
 	if err != nil {
@@ -275,7 +318,7 @@ func ConsumeDownloadToken(db *sql.DB, token string) (int, error) {
 	if err != nil || affected != 1 {
 		return 0, errors.New("次数已用完")
 	}
-	if _, err := tx.Exec(`UPDATE download_tokens SET used = 1 WHERE token_hash = ? AND used = 0`, hashText); err != nil {
+	if _, err := tx.Exec(`UPDATE download_tokens SET used = 1 WHERE token_hash = ? AND used = 2`, hashText); err != nil {
 		return 0, err
 	}
 	var left int
@@ -289,7 +332,7 @@ func ConsumeDownloadToken(db *sql.DB, token string) (int, error) {
 }
 
 func PurgeDownloadTokens(db *sql.DB) error {
-	_, err := db.Exec(`DELETE FROM download_tokens WHERE used = 1 OR expires_at < CURRENT_TIMESTAMP`)
+	_, err := db.Exec(`DELETE FROM download_tokens WHERE used != 0 OR expires_at < CURRENT_TIMESTAMP`)
 	return err
 }
 
@@ -348,6 +391,19 @@ func (c *Card) Allowed(path string) bool {
 		}
 	}
 	return false
+}
+
+func validateResourcePath(path string) error {
+	path = strings.TrimPrefix(path, "/")
+	if path == "" {
+		return errors.New("资源路径为空")
+	}
+	for _, part := range strings.Split(path, "/") {
+		if part == "" || part == "." || part == ".." {
+			return errors.New("资源路径非法")
+		}
+	}
+	return nil
 }
 
 // normalizeResource 规范化资源路径: 去首尾斜杠, 统一比较基准 ("pub/a.zip" == "/pub/a.zip/")

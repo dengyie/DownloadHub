@@ -28,6 +28,17 @@ func TestNormalizeResource(t *testing.T) {
 	}
 }
 
+func TestValidateResourcePath(t *testing.T) {
+	for _, path := range []string{"pub/../secret.zip", "pub/./secret.zip", "../secret.zip", "pub//secret.zip"} {
+		if err := validateResourcePath(path); err == nil {
+			t.Fatalf("path %q should be rejected", path)
+		}
+	}
+	if err := validateResourcePath("pub/secret.zip"); err != nil {
+		t.Fatalf("valid path rejected: %v", err)
+	}
+}
+
 // fakeOL 实现 olClient 接口, 返回固定直链用于 handler 测试
 type fakeOL struct{}
 
@@ -187,6 +198,9 @@ func TestDownloadTokenLifecycle(t *testing.T) {
 	if _, err := VerifyDownloadToken(db, token, "pub/a file.zip"); err != nil {
 		t.Fatalf("verify token: %v", err)
 	}
+	if _, err := ClaimDownloadToken(db, token, "pub/a file.zip"); err != nil {
+		t.Fatalf("claim token: %v", err)
+	}
 	left, err := ConsumeDownloadToken(db, token)
 	if err != nil || left != 1 {
 		t.Fatalf("consume token: left=%d err=%v", left, err)
@@ -201,6 +215,34 @@ func TestDownloadPathWithTokenEscapesSegments(t *testing.T) {
 	want := "/dl/pub/a%20file.zip?token=tok"
 	if path != want {
 		t.Fatalf("path=%q want=%q", path, want)
+	}
+}
+
+func TestClaimDownloadTokenIsAtomic(t *testing.T) {
+	db := newTestDB(t)
+	c, err := CreateCard(db, 2, "member", nil, []string{"pub/a.zip"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := CreateDownloadToken(db, c.CardID, "pub/a.zip", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, claimErr := ClaimDownloadToken(db, token, "pub/a.zip")
+			results <- claimErr
+		}()
+	}
+	var success int
+	for i := 0; i < 2; i++ {
+		if <-results == nil {
+			success++
+		}
+	}
+	if success != 1 {
+		t.Fatalf("claim success count=%d, want 1", success)
 	}
 }
 
