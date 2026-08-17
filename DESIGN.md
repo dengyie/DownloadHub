@@ -5,15 +5,14 @@
 
 ## 架构
 ```
-用户(兑换页或直链)
-   ├─ 兑换页 /redeem  输卡号+密钥 → POST /api/redeem → 列出绑定资源
-   └─ 下载 GET /dl/<path>?card=<id>&key=<secret>
-            │ ① 验卡:存在/未过期/次数>0/资源绑定或前缀匹配
-            │ ② 调 OpenList /api/fs/get 拿 raw_url 签名直链(自动重登 token)
-            │ ③ 扣次数 → SQLite
-            │ ④ 302 到签名直链(仅带 sign)
-            ▼
-        [OpenList :5244] → 文件
+用户 ── GET /dl/<path>?token=<一次性token> ──▶ [cardgw :8080]
+       │                                          │ ① 验 token:资源绑定/未过期/未使用/卡有效
+       │                                          │ ② 调 OpenList /api/fs/get 拿签名直链(自动重登)
+       │                                          │ ③ 事务扣次数 + token 标记 used
+       │                                          │ ④ 302 到签名直链(仅带 sign)
+       └─ /redeem POST 卡号+密钥 → 返回每个资源的 10 分钟一次性 token
+
+旧版 `/dl/<path>?card=&key=` 仍兼容，但新兑换页不再生成此类 URL，避免卡密进入浏览器历史和 nginx 日志。
 ```
 - 网关监听 `127.0.0.1:8080`（本机回环，nginx 反代对外）
 - SQLite: `cards.db`（运行期路径由配置 `db_path` 指定）

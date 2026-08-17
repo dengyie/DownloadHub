@@ -1,11 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestNormalizeResource 边界路径规范化
@@ -166,5 +168,71 @@ func TestHandleRedeemAPIBadKey(t *testing.T) {
 	h.handleRedeemAPI(w, req)
 	if w.Code != 403 {
 		t.Fatalf("bad key: got %d, want 403", w.Code)
+	}
+}
+
+func TestDownloadTokenLifecycle(t *testing.T) {
+	db := newTestDB(t)
+	c, err := CreateCard(db, 2, "member", nil, []string{"pub/a file.zip"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := CreateDownloadToken(db, c.CardID, "pub/a file.zip", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyDownloadToken(db, token, "pub/other.zip"); err == nil {
+		t.Fatal("token should be bound to one resource")
+	}
+	if _, err := VerifyDownloadToken(db, token, "pub/a file.zip"); err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+	left, err := ConsumeDownloadToken(db, token)
+	if err != nil || left != 1 {
+		t.Fatalf("consume token: left=%d err=%v", left, err)
+	}
+	if _, err := ConsumeDownloadToken(db, token); err == nil {
+		t.Fatal("token must be one-time")
+	}
+}
+
+func TestDownloadPathWithTokenEscapesSegments(t *testing.T) {
+	path := DownloadPathWithToken("pub/a file.zip", "tok")
+	want := "/dl/pub/a%20file.zip?token=tok"
+	if path != want {
+		t.Fatalf("path=%q want=%q", path, want)
+	}
+}
+
+func TestLegacySecretMigratesToHash(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/legacy.db"
+	db0, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db0.Exec(`CREATE TABLE cards (card_id TEXT PRIMARY KEY, secret TEXT NOT NULL, quota INTEGER NOT NULL, perm_group TEXT NOT NULL DEFAULT '', prefixes TEXT NOT NULL DEFAULT '', resources TEXT NOT NULL DEFAULT '', expires_at DATETIME, created_at DATETIME NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db0.Exec(`INSERT INTO cards(card_id,secret,quota,perm_group,prefixes,resources,created_at,revoked) VALUES('legacy','old-secret',1,'guest','/pub/','',CURRENT_TIMESTAMP,0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db0.Close()
+	db, err := openDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := VerifyCard(db, "legacy", "old-secret"); err != nil {
+		t.Fatalf("legacy secret should verify after migration: %v", err)
+	}
+	var secret, hash string
+	if err := db.QueryRow(`SELECT secret, secret_hash FROM cards WHERE card_id='legacy'`).Scan(&secret, &hash); err != nil {
+		t.Fatal(err)
+	}
+	if secret != "" || hash == "" {
+		t.Fatalf("legacy secret not migrated: secret=%q hash=%q", secret, hash)
 	}
 }

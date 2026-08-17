@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 )
 
 // RunGen 处理 admin CLI 命令: gencard / listcards / revokecard
@@ -150,7 +149,7 @@ func listCardsOut(db *sql.DB) {
 			auth = fmt.Sprintf("资源=%v", c.Resources)
 		}
 		fmt.Printf("%s | 次数=%d | %s | %s | 到期=%s%s\n",
-			strings.Join([]string{c.CardID, c.Secret}, "+"), c.Quota,
+			c.CardID, c.Quota,
 			c.PermGroup, auth, exp, rev)
 	}
 }

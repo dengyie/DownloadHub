@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -33,7 +34,8 @@ func openDB(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1) // sqlite 单写
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS cards (
 		card_id    TEXT PRIMARY KEY,
-		secret     TEXT NOT NULL,
+		secret     TEXT NOT NULL DEFAULT '',
+		secret_hash TEXT NOT NULL DEFAULT '',
 		quota      INTEGER NOT NULL,
 		perm_group TEXT NOT NULL DEFAULT '',
 		prefixes   TEXT NOT NULL DEFAULT '',
@@ -70,6 +72,60 @@ func openDB(path string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
+	var hasSecretHash bool
+	rows, err = db.Query(`PRAGMA table_info(cards)`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if name == "secret_hash" {
+			hasSecretHash = true
+		}
+	}
+	rows.Close()
+	if !hasSecretHash {
+		if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN secret_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+			return nil, err
+		}
+	}
+	rows, err = db.Query(`SELECT card_id, secret FROM cards WHERE secret_hash = '' AND secret <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	type legacySecret struct{ id, secret string }
+	var legacy []legacySecret
+	for rows.Next() {
+		var item legacySecret
+		if err := rows.Scan(&item.id, &item.secret); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		legacy = append(legacy, item)
+	}
+	rows.Close()
+	for _, item := range legacy {
+		sum := sha256.Sum256([]byte(item.secret))
+		if _, err := db.Exec(`UPDATE cards SET secret_hash = ?, secret = '' WHERE card_id = ?`, hex.EncodeToString(sum[:]), item.id); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS download_tokens (
+		token_hash TEXT PRIMARY KEY,
+		card_id TEXT NOT NULL,
+		resource TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL
+	)`); err != nil {
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -95,10 +151,11 @@ func CreateCard(db *sql.DB, quota int, permGroup string, prefixes []string, reso
 		et := time.Now().Add(time.Duration(*ttlDays) * 24 * time.Hour)
 		card.ExpiresAt = &et
 	}
+	sum := sha256.Sum256([]byte(card.Secret))
 	_, err := db.Exec(`INSERT INTO cards
-		(card_id, secret, quota, perm_group, prefixes, resources, expires_at, created_at, revoked)
-		VALUES (?,?,?,?,?,?,?,?,0)`,
-		card.CardID, card.Secret, card.Quota, card.PermGroup,
+		(card_id, secret, secret_hash, quota, perm_group, prefixes, resources, expires_at, created_at, revoked)
+		VALUES (?, '', ?, ?,?,?,?,?,?,0)`,
+		card.CardID, hex.EncodeToString(sum[:]), card.Quota, card.PermGroup,
 		strings.Join(card.Prefixes, ","),
 		strings.Join(card.Resources, ","),
 		card.ExpiresAt, card.CreatedAt)
@@ -112,10 +169,10 @@ func CreateCard(db *sql.DB, quota int, permGroup string, prefixes []string, reso
 func VerifyCard(db *sql.DB, cardID, secret string) (*Card, error) {
 	var c Card
 	var exp sql.NullTime
-	var prefixes, resources string
-	row := db.QueryRow(`SELECT card_id, secret, quota, perm_group, prefixes, resources, expires_at, created_at, revoked
+	var storedSecret, secretHash, prefixes, resources string
+	row := db.QueryRow(`SELECT card_id, secret, secret_hash, quota, perm_group, prefixes, resources, expires_at, created_at, revoked
 		FROM cards WHERE card_id = ?`, cardID)
-	if err := row.Scan(&c.CardID, &c.Secret, &c.Quota, &c.PermGroup,
+	if err := row.Scan(&c.CardID, &storedSecret, &secretHash, &c.Quota, &c.PermGroup,
 		&prefixes, &resources, &exp, &c.CreatedAt, &c.Revoked); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("卡号不存在")
@@ -131,7 +188,11 @@ func VerifyCard(db *sql.DB, cardID, secret string) (*Card, error) {
 	if c.Revoked {
 		return nil, errors.New("卡已被吊销")
 	}
-	if c.Secret != secret {
+	if secretHash == "" {
+		secretHash = storedSecret
+	}
+	sum := sha256.Sum256([]byte(secret))
+	if secretHash != hex.EncodeToString(sum[:]) {
 		return nil, errors.New("卡密钥错误")
 	}
 	if c.Quota <= 0 {
@@ -139,6 +200,118 @@ func VerifyCard(db *sql.DB, cardID, secret string) (*Card, error) {
 	}
 	if c.ExpiresAt != nil && time.Now().After(*c.ExpiresAt) {
 		return nil, errors.New("卡已过期")
+	}
+	return &c, nil
+}
+
+// CreateDownloadToken 为指定卡和资源创建一次性短时下载 token。
+func CreateDownloadToken(db *sql.DB, cardID, resource string, ttl time.Duration) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(tokenBytes)
+	hash := sha256.Sum256([]byte(token))
+	now := time.Now()
+	_, err := db.Exec(`INSERT INTO download_tokens
+		(token_hash, card_id, resource, expires_at, used, created_at) VALUES (?,?,?,?,0,?)`,
+		hex.EncodeToString(hash[:]), cardID, normalizeResource(resource), now.Add(ttl), now)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func VerifyDownloadToken(db *sql.DB, token, resource string) (*Card, error) {
+	hash := sha256.Sum256([]byte(token))
+	var cardID, boundResource string
+	var expires time.Time
+	var used bool
+	err := db.QueryRow(`SELECT card_id, resource, expires_at, used FROM download_tokens WHERE token_hash = ?`, hex.EncodeToString(hash[:])).Scan(&cardID, &boundResource, &expires, &used)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("兑换链接无效")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if used || time.Now().After(expires) {
+		return nil, errors.New("兑换链接已使用或过期")
+	}
+	if normalizeResource(boundResource) != normalizeResource(resource) {
+		return nil, errors.New("兑换链接与资源不匹配")
+	}
+	card, err := loadCard(db, cardID)
+	if err != nil {
+		return nil, err
+	}
+	if card.Revoked || card.Quota <= 0 || (card.ExpiresAt != nil && time.Now().After(*card.ExpiresAt)) {
+		return nil, errors.New("卡已失效")
+	}
+	return card, nil
+}
+
+func ConsumeDownloadToken(db *sql.DB, token string) (int, error) {
+	hash := sha256.Sum256([]byte(token))
+	hashText := hex.EncodeToString(hash[:])
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var cardID string
+	var expires time.Time
+	var used bool
+	if err := tx.QueryRow(`SELECT card_id, expires_at, used FROM download_tokens WHERE token_hash = ?`, hashText).Scan(&cardID, &expires, &used); err != nil {
+		return 0, err
+	}
+	if used || time.Now().After(expires) {
+		return 0, errors.New("兑换链接已使用或过期")
+	}
+	res, err := tx.Exec(`UPDATE cards SET quota = quota - 1 WHERE card_id = ? AND quota > 0`, cardID)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil || affected != 1 {
+		return 0, errors.New("次数已用完")
+	}
+	if _, err := tx.Exec(`UPDATE download_tokens SET used = 1 WHERE token_hash = ? AND used = 0`, hashText); err != nil {
+		return 0, err
+	}
+	var left int
+	if err := tx.QueryRow(`SELECT quota FROM cards WHERE card_id = ?`, cardID).Scan(&left); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return left, nil
+}
+
+func PurgeDownloadTokens(db *sql.DB) error {
+	_, err := db.Exec(`DELETE FROM download_tokens WHERE used = 1 OR expires_at < CURRENT_TIMESTAMP`)
+	return err
+}
+
+// loadCard 仅加载卡状态, 不返回密钥明文。
+func loadCard(db *sql.DB, cardID string) (*Card, error) {
+	var c Card
+	var exp sql.NullTime
+	var storedSecret, secretHash, prefixes, resources string
+	row := db.QueryRow(`SELECT card_id, secret, secret_hash, quota, perm_group, prefixes, resources, expires_at, created_at, revoked FROM cards WHERE card_id = ?`, cardID)
+	if err := row.Scan(&c.CardID, &storedSecret, &secretHash, &c.Quota, &c.PermGroup, &prefixes, &resources, &exp, &c.CreatedAt, &c.Revoked); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("卡号不存在")
+		}
+		return nil, err
+	}
+	_ = storedSecret
+	_ = secretHash
+	c.Prefixes = splitNonEmpty(prefixes, ",")
+	c.Resources = splitNonEmpty(resources, ",")
+	if exp.Valid {
+		t := exp.Time
+		c.ExpiresAt = &t
 	}
 	return &c, nil
 }
@@ -210,7 +383,7 @@ func RevokeCard(db *sql.DB, cardID string) error {
 
 // ListCards 列出所有卡
 func ListCards(db *sql.DB) ([]Card, error) {
-	rows, err := db.Query(`SELECT card_id, secret, quota, perm_group, prefixes, resources, expires_at, created_at, revoked FROM cards ORDER BY created_at DESC`)
+	rows, err := db.Query(`SELECT card_id, secret, secret_hash, quota, perm_group, prefixes, resources, expires_at, created_at, revoked FROM cards ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -219,8 +392,8 @@ func ListCards(db *sql.DB) ([]Card, error) {
 	for rows.Next() {
 		var c Card
 		var exp sql.NullTime
-		var prefixes, resources string
-		if err := rows.Scan(&c.CardID, &c.Secret, &c.Quota, &c.PermGroup,
+		var storedSecret, secretHash, prefixes, resources string
+		if err := rows.Scan(&c.CardID, &storedSecret, &secretHash, &c.Quota, &c.PermGroup,
 			&prefixes, &resources, &exp, &c.CreatedAt, &c.Revoked); err != nil {
 			return nil, err
 		}
@@ -231,6 +404,9 @@ func ListCards(db *sql.DB) ([]Card, error) {
 			c.ExpiresAt = &t
 		}
 		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

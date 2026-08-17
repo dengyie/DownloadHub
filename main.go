@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -92,7 +94,7 @@ func runServer(cfg Config) {
 		log.Printf("WARN OpenList 登录失败(启动后半分钟自动重试): %v", err)
 	}
 
-	gw := &handler{db: db, ol: ol}
+	gw := &handler{db: db, ol: ol, ratelimit: newRateLimiter()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", gw.handleHealth)
@@ -120,67 +122,136 @@ type olClient interface {
 
 // handler HTTP handler 集合
 type handler struct {
-	db *sql.DB
-	ol olClient
+	db        *sql.DB
+	ol        olClient
+	ratelimit *rateLimiter
+}
+
+type olClientDB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// rateLimiter 是轻量的进程内固定窗口限流器。多实例部署时应移到 nginx/Redis。
+type rateLimiter struct {
+	mu sync.Mutex
+	m  map[string]rateWindow
+}
+
+type rateWindow struct {
+	start time.Time
+	n     int
+}
+
+func newRateLimiter() *rateLimiter {
+	return &rateLimiter{m: make(map[string]rateWindow)}
+}
+
+func (l *rateLimiter) allow(key string, limit int, window time.Duration) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	w := l.m[key]
+	if w.start.IsZero() || now.Sub(w.start) >= window {
+		l.m[key] = rateWindow{start: now, n: 1}
+		return true
+	}
+	if w.n >= limit {
+		return false
+	}
+	w.n++
+	l.m[key] = w
+	return true
+}
+
+// clientIP 使用 nginx 注入的 X-Real-IP; 直连时回退 RemoteAddr。
+func clientIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
+	}
+	return r.RemoteAddr
+}
+
+func (h *handler) securityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	h.securityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, `{"status":"ok"}`)
 }
 
-// handleDownload 核心: /dl/<path>?card=&key=
+func (h *handler) limited(r *http.Request, limit int) bool {
+	if h.ratelimit == nil {
+		h.ratelimit = newRateLimiter()
+	}
+	return h.ratelimit.allow(clientIP(r), limit, time.Minute)
+}
+
+// handleDownload 核心: /dl/<path>?token=<一次性token>
+// 兼容旧 /dl/<path>?card=&key= 链接, 但新兑换页只发 token。
 func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
+	h.securityHeaders(w)
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", 405)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// 提取路径
+	if !h.limited(r, 120) {
+		http.Error(w, "请求过于频繁", http.StatusTooManyRequests)
+		return
+	}
 	p := strings.TrimPrefix(r.URL.Path, "/dl/")
 	if p == "" {
-		http.Error(w, "empty path", 400)
+		http.Error(w, "empty path", http.StatusBadRequest)
 		return
 	}
-	cardID := r.URL.Query().Get("card")
-	key := r.URL.Query().Get("key")
-	if cardID == "" || key == "" {
-		http.Error(w, "missing card/key", 400)
-		return
-	}
-	// 路径 URL 解码
 	if un, err := url.PathUnescape(p); err == nil {
 		p = un
 	}
-	// 校验卡
-	card, err := VerifyCard(h.db, cardID, key)
-	if err != nil {
-		http.Error(w, err.Error(), 403)
-		return
-	}
-	// 权限匹配: 卡绑定资源时精确匹配,否则按前缀(旧模式)
-	if len(card.Resources) > 0 {
-		if !card.HasResource("/" + p) {
-			http.Error(w, "该卡无权下载此资源", 403)
+	q := r.URL.Query()
+	token := strings.TrimSpace(q.Get("token"))
+	var card *Card
+	var err error
+	if token != "" {
+		card, err = VerifyDownloadToken(h.db, token, "/"+p)
+	} else {
+		cardID := q.Get("card")
+		key := q.Get("key")
+		if cardID == "" || key == "" {
+			http.Error(w, "missing token", http.StatusBadRequest)
 			return
 		}
-	} else if !card.Allowed("/" + p) {
-		http.Error(w, "无权访问该资源", 403)
+		card, err = VerifyCard(h.db, cardID, key)
+		if err == nil {
+			if len(card.Resources) > 0 && !card.HasResource("/"+p) {
+				err = errors.New("该卡无权下载此资源")
+			} else if len(card.Resources) == 0 && !card.Allowed("/"+p) {
+				err = errors.New("无权访问该资源")
+			}
+		}
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	// 从 OpenList 拿签名直链
 	rawURL, err := h.ol.GetRawURL("/"+p, "")
 	if err != nil {
-		http.Error(w, "后端取直链失败: "+err.Error(), 502)
+		http.Error(w, "后端取直链失败: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	// 扣次数
-	left, err := ConsumeQuota(h.db, cardID)
+	var left int
+	if token != "" {
+		left, err = ConsumeDownloadToken(h.db, token)
+	} else {
+		left, err = ConsumeQuota(h.db, card.CardID)
+	}
 	if err != nil {
-		http.Error(w, "扣次数失败: "+err.Error(), 500)
+		http.Error(w, "扣次数失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("下载: card=%s path=%s group=%s 剩余=%d", cardID, "/"+p, card.PermGroup, left)
-	// 302 到签名直链
+	log.Printf("下载: card=%s path=%s group=%s 剩余=%d", card.CardID, "/"+p, card.PermGroup, left)
 	http.Redirect(w, r, rawURL, http.StatusFound)
 }
 
@@ -192,33 +263,46 @@ type resourceItem struct {
 
 // handleRedeemAPI POST 卡号+密钥 -> 验证 -> 返回绑定的资源列表
 func (h *handler) handleRedeemAPI(w http.ResponseWriter, r *http.Request) {
+	h.securityHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(405)
+		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, `{"code":405,"msg":"method not allowed"}`)
 		return
 	}
+	if !h.limited(r, 20) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"code":429,"msg":"请求过于频繁"}`)
+		return
+	}
+	_ = PurgeDownloadTokens(h.db)
 	cardID := strings.TrimSpace(r.FormValue("card"))
 	key := strings.TrimSpace(r.FormValue("key"))
 	if cardID == "" || key == "" {
-		w.WriteHeader(400)
+		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, `{"code":400,"msg":"请填写卡号和密钥"}`)
 		return
 	}
 	card, err := VerifyCard(h.db, cardID, key)
 	if err != nil {
-		w.WriteHeader(403)
+		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, `{"code":403,"msg":%q}`, err.Error())
 		return
 	}
-	// 绑定资源卡的兑换页列出资源; 前缀卡无具体资源列表,提示用 /dl 直连
 	if len(card.Resources) == 0 {
 		fmt.Fprintf(w, `{"code":200,"msg":"ok","quota":%d,"resources":[]}`, card.Quota)
 		return
 	}
 	items := make([]resourceItem, 0, len(card.Resources))
 	for _, rs := range card.Resources {
-		items = append(items, resourceItem{Name: filepathBase(rs), Path: rs})
+		token, tokenErr := CreateDownloadToken(h.db, card.CardID, rs, 10*time.Minute)
+		if tokenErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, `{"code":500,"msg":"创建兑换链接失败"}`)
+			return
+		}
+		items = append(items, resourceItem{Name: filepathBase(rs), Path: DownloadPathWithToken(rs, token)})
 	}
 	fmt.Fprintf(w, `{"code":200,"msg":"ok","quota":%d,"resources":%s}`,
 		card.Quota, mustJSON(items))
@@ -229,6 +313,14 @@ func (h *handler) handleRedeemAPI(w http.ResponseWriter, r *http.Request) {
 func (h *handler) handleRedeemPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, redeemHTML)
+}
+
+func DownloadPathWithToken(resource, token string) string {
+	parts := strings.Split(normalizeResource(resource), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return "/dl/" + strings.Join(parts, "/") + "?token=" + url.QueryEscape(token)
 }
 
 // filepathBase 返回路径最末段作展示名(不引 path/filepath 依赖)

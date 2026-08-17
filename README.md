@@ -20,7 +20,8 @@
 ```
 
 - 网关监听 `127.0.0.1:8080`（本机回环，由 nginx 反代对外）
-- 存储：SQLite（`card_id`+`secret` 验卡、`quota` 次数、`resources`/`prefixes` 授权、`expires_at` 到期、`revoked` 吊销）
+- 存储：SQLite（`card_id`、`secret_hash` 验卡、`quota` 次数、`resources`/`prefixes` 授权、`expires_at` 到期、`revoked` 吊销、`download_tokens` 一次性 token）
+- 卡密明文只在 `gencard` 生成时输出一次；数据库迁移后 `secret` 清空，仅保存 SHA-256 hash；`listcards` 默认不显示密钥
 - 前置：需外部提供一个 OpenList（或任意提供"按路径取签名直链"API 的后端）
 
 ## 环境要求
@@ -81,16 +82,17 @@ cardgw revokecard --card <卡号>
 GET `/redeem` 返回内嵌 HTML（`redeem_html.go` 常量，单二进制无静态依赖）：
 
 1. 用户输入卡号 + 密钥
-2. 前端 `POST /api/redeem` → 后端校验 → 返回绑定资源列表（name/path）
-3. 用户点击资源 → 跳 `/dl/<path>?card=&key=` → 网关鉴权 → 302 签名直链下载
+2. 前端 `POST /api/redeem` → 后端校验 → 为每个绑定资源创建 10 分钟一次性 token
+3. 返回 `/dl/<path>?token=<token>` 资源链接；token 只绑定一个资源、只能使用一次
+4. 用户点击资源 → 网关鉴权 → 事务扣次数并消费 token → 302 签名直链下载
 
-兑换 API 响应：
+兑换 API 响应示例：
 
 ```json
-{"code":200,"msg":"ok","quota":3,"resources":[{"name":"manual.txt","path":"pub/manual.txt"}]}
+{"code":200,"msg":"ok","quota":3,"resources":[{"name":"manual.txt","path":"/dl/pub/manual.txt?token=<one-time-token>"}]}
 ```
 
-错误：`400`(缺参) / `403`(卡号不存在/密钥错误/过期/吊销/次数用完/未绑定该资源)。
+旧版 `/dl/<path>?card=&key=` 保留兼容，但不应继续生成或分发。
 
 ## nginx 反代参考
 
@@ -99,7 +101,10 @@ location /dl/    { proxy_pass http://127.0.0.1:8080; ... }
 location /redeem { proxy_pass http://127.0.0.1:8080; ... }
 location /api/   { proxy_pass http://127.0.0.1:8080; ... }   # 兑换 API
 location /p/     { proxy_pass http://127.0.0.1:5244; ... }   # OpenList 签名直链前缀
+location /files/  { return 404; }                              # OpenList 前台关闭,避免子路径冲突
 ```
+
+nginx 站点使用不含 query string 的 `download_safe` access log，并给兑换/下载路由添加 `nosniff`、`SAMEORIGIN`、`no-referrer` 响应头。cardgw 内置按 IP 限流：兑换每分钟 20 次、下载每分钟 120 次。
 
 > ⚠️ `/p/` 必须反代到 OpenList，否则 302 后的签名直链 `/p/*` 会落到应用层 → 404。
 
