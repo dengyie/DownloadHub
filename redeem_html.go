@@ -12,7 +12,7 @@ const redeemHTML = `<!doctype html>
 <title>MangoQWQ 资源兑换</title>
 <link rel="icon" href="/brand/favicon.ico">
 <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
-<script>(function(){var v=localStorage.getItem('mango-theme')||'auto';document.documentElement.dataset.theme=v;document.documentElement.style.colorScheme=v==='auto'?'light dark':v})();</script>
+<script>(function(){var v=localStorage.getItem('mango-theme')||'auto',h=new Date().getHours(),n=matchMedia('(prefers-color-scheme: dark)').matches||h>=19||h<7;document.documentElement.dataset.theme=v;document.documentElement.dataset.resolvedTheme=v==='auto'?(n?'dark':'light'):v;document.documentElement.style.colorScheme=document.documentElement.dataset.resolvedTheme})();</script>
 <style>
 :root{
   --bg:#0b0d10; --bg2:#101318; --card:#15181d; --card2:#1b1f26;
@@ -70,12 +70,12 @@ footer .sep{margin:0 8px;opacity:.4}
 
 /* 兑换页三态主题：与首页 mango-theme 保持一致 */
 :root[data-theme="light"]{--bg:#f4f7fb;--bg2:#ffffff;--card:#ffffff;--card2:#f8fafc;--ink:#1f2937;--muted:#526174;--faint:#64748b;--line:rgba(31,41,55,.14)}
-@media (prefers-color-scheme: light){:root[data-theme="auto"]{--bg:#f4f7fb;--bg2:#ffffff;--card:#ffffff;--card2:#f8fafc;--ink:#1f2937;--muted:#526174;--faint:#64748b;--line:rgba(31,41,55,.14)}}
-:root[data-theme="light"] body,:root[data-theme="auto"] body{background:radial-gradient(circle at 12% 15%,rgba(255,166,0,.12),transparent 30%),linear-gradient(135deg,#f4f7fb,#eef3f8);}
-:root[data-theme="light"] .wrap,:root[data-theme="auto"] .wrap{box-shadow:0 24px 70px rgba(31,41,55,.12);border-color:rgba(31,41,55,.12)}
-:root[data-theme="light"] input,:root[data-theme="auto"] input{border-color:rgba(31,41,55,.16);color:#1f2937}
-:root[data-theme="light"] input::placeholder,:root[data-theme="auto"] input::placeholder{color:#64748b}
-:root[data-theme="light"] .hint,:root[data-theme="auto"] .hint{color:#526174}
+:root[data-theme="auto"][data-resolved-theme="light"]{--bg:#f4f7fb;--bg2:#ffffff;--card:#ffffff;--card2:#f8fafc;--ink:#1f2937;--muted:#526174;--faint:#64748b;--line:rgba(31,41,55,.14)}
+:root[data-theme="light"] body,:root[data-theme="auto"][data-resolved-theme="light"] body{background:radial-gradient(circle at 12% 15%,rgba(255,166,0,.12),transparent 30%),linear-gradient(135deg,#f4f7fb,#eef3f8);}
+:root[data-theme="light"] .wrap,:root[data-theme="auto"][data-resolved-theme="light"] .wrap{box-shadow:0 24px 70px rgba(31,41,55,.12);border-color:rgba(31,41,55,.12)}
+:root[data-theme="light"] input,:root[data-theme="auto"][data-resolved-theme="light"] input{border-color:rgba(31,41,55,.16);color:#1f2937}
+:root[data-theme="light"] input::placeholder,:root[data-theme="auto"][data-resolved-theme="light"] input::placeholder{color:#64748b}
+:root[data-theme="light"] .hint,:root[data-theme="auto"][data-resolved-theme="light"] .hint{color:#526174}
 .theme-picker{display:flex;justify-content:flex-end;gap:6px;margin:-12px 0 16px}
 .theme-picker button{width:auto;min-height:36px;margin:0;padding:7px 9px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:12px;letter-spacing:0}
 .theme-picker button.active{background:rgba(255,166,0,.14);border-color:rgba(255,166,0,.4);color:#a15c00;font-weight:700}
@@ -116,11 +116,17 @@ footer .sep{margin:0 8px;opacity:.4}
 <script>
 const $=s=>document.querySelector(s);
 const themeKey='mango-theme';
-const themeLabels={auto:'自适应',light:'白天',dark:'夜晚'};
+function resolvedTheme(value){
+  if(value==='light'||value==='dark')return value;
+  const hour=new Date().getHours();
+  return matchMedia('(prefers-color-scheme: dark)').matches||hour>=19||hour<7?'dark':'light';
+}
 function applyTheme(value){
   value=value==='light'||value==='dark'?value:'auto';
+  const actual=resolvedTheme(value);
   document.documentElement.dataset.theme=value;
-  document.documentElement.style.colorScheme=value==='auto'?'light dark':value;
+  document.documentElement.dataset.resolvedTheme=actual;
+  document.documentElement.style.colorScheme=actual;
   document.querySelectorAll('[data-theme-value]').forEach(x=>x.classList.toggle('active',x.dataset.themeValue===value));
 }
 applyTheme(localStorage.getItem(themeKey)||'auto');
