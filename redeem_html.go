@@ -15,9 +15,9 @@ const redeemHTML = `<!doctype html>
 <style>
 :root{
   --bg:#0b0d10; --bg2:#101318; --card:#15181d; --card2:#1b1f26;
-  --ink:#e8eaed; --muted:#8b95a3; --faint:#5a6572;
+  --ink:#e8eaed; --muted:#9aa4b2; --faint:#7d8896;
   --acc:#ffa600; --acc-dim:rgba(255,166,0,.12);
-  --grn:#5ba300; --line:rgba(255,255,255,.07); --err:#ff6b6b;
+  --grn:#7cd423; --line:rgba(255,255,255,.07); --err:#ff6b6b;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -36,29 +36,33 @@ main{flex:1;display:flex;align-items:center;justify-content:center;width:100%;pa
 h1{font-size:21px;margin:0 0 6px;font-weight:700}
 .sub{color:var(--muted);font-size:13px;margin:0 0 24px;line-height:1.6}
 label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px;font-weight:500}
-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:10px;font-size:15px;
+input{width:100%;min-height:46px;padding:12px 13px;border:1px solid var(--line);border-radius:10px;font-size:15px;
   outline:none;background:var(--bg2);color:var(--ink);transition:border-color .15s, box-shadow .15s}
 input:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-dim)}
 input::placeholder{color:var(--faint)}
-button{width:100%;margin-top:24px;padding:13px;border:0;border-radius:10px;
+button{width:100%;min-height:46px;margin-top:24px;padding:13px;border:0;border-radius:10px;
   background:linear-gradient(135deg,#ffa600,#ff8c00);color:#1a1200;font-size:15px;font-weight:700;
   cursor:pointer;transition:transform .12s ease, filter .15s;letter-spacing:.5px}
 button:hover{filter:brightness(1.06)}
+button:focus-visible,.res a:focus-visible,footer a:focus-visible{outline:3px solid rgba(255,166,0,.55);outline-offset:3px}
 button:active{transform:scale(.985)}
 button:disabled{opacity:.5;cursor:not-allowed}
 #result{margin-top:22px}
-.err{color:var(--err);font-size:14px;padding:11px 13px;background:rgba(255,107,107,.08);
+.err{color:#ff9b9b;font-size:14px;padding:11px 13px;background:rgba(255,107,107,.08);
   border:1px solid rgba(255,107,107,.2);border-radius:9px}
-.ok{font-size:13px;color:var(--grn);margin:0 0 10px;font-weight:600}
+.ok{font-size:13px;color:#a8e85e;margin:0 0 10px;font-weight:600}
 .res{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 14px;
   border:1px solid var(--line);border-radius:10px;background:var(--card2);margin-bottom:8px;font-size:15px}
 .res span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.res a{color:var(--acc);text-decoration:none;font-weight:600;white-space:nowrap;flex-shrink:0}
+.res a{color:var(--acc);text-decoration:none;font-weight:600;white-space:nowrap;flex-shrink:0;min-height:40px;display:inline-flex;align-items:center;padding:8px 4px}
 .res a:hover{text-decoration:underline}
-.hint{text-align:center;color:var(--faint);font-size:12px;margin-top:22px;line-height:1.6}
-.loading{text-align:center;color:var(--muted);margin-top:20px}
+.copy-link{width:auto;min-width:40px;min-height:40px;margin:0;padding:8px 10px;border:1px solid rgba(255,166,0,.28);border-radius:8px;background:rgba(255,166,0,.08);color:var(--acc);font-size:12px;font-weight:600;letter-spacing:0}
+.copy-link:hover{background:rgba(255,166,0,.18);filter:none}
+.copy-link:active{transform:scale(.97)}
+.hint{text-align:center;color:#9aa4b2;font-size:12px;margin-top:22px;line-height:1.6}
+.loading{text-align:center;color:#b7c0cc;margin-top:20px}
 footer{width:100%;text-align:center;padding:20px 16px 28px;font-size:12px;color:var(--faint)}
-footer a{color:var(--muted);text-decoration:none;transition:color .15s}
+footer a{color:var(--faint);text-decoration:none;transition:color .15s}
 footer a:hover{color:var(--acc)}
 footer .sep{margin:0 8px;opacity:.4}
 @media (max-width:480px){.wrap{padding:26px 20px}.brand img{width:40px;height:40px}}
@@ -76,13 +80,13 @@ footer .sep{margin:0 8px;opacity:.4}
   </div>
   <h1>资源兑换</h1>
   <p class="sub">输入您收到的卡号与密钥，即可获取资源下载链接。</p>
-  <label>卡号</label>
+  <label for="card">卡号</label>
   <input id="card" inputmode="text" autocomplete="off" placeholder="请输入卡号" spellcheck="false">
-  <label>密钥</label>
+  <label for="key">密钥</label>
   <input id="key" inputmode="text" autocomplete="off" placeholder="请输入密钥" spellcheck="false">
   <button id="go">立即兑换</button>
-  <div id="result"></div>
-  <p class="hint">兑换成功后链接 10 分钟内有效，请及时下载。<br>如兑换出现问题，请联系您的购买渠道。</p>
+  <div id="result" role="status" aria-live="polite"></div>
+  <p class="hint">兑换成功后链接 10 分钟内有效，请及时下载。<br>如兑换出现问题，请联系您的购买渠道获取帮助。</p>
 </div>
 </main>
 <footer>
@@ -105,8 +109,12 @@ $('#go').onclick=async()=>{
     const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     if(j.code!==200){box.innerHTML='<div class="err">'+esc(j.msg||'验证失败')+'</div>';return}
     let h='<p class="ok">兑换成功，剩余 '+esc(j.quota)+' 次下载机会：</p>';
-    h+=j.resources.map(x=>'<div class="res"><span>'+esc(x.name)+'</span><a href="'+esc(x.path)+'">下载 →</a></div>').join('');
+    h+=j.resources.map(x=>'<div class="res"><span>'+esc(x.name)+'</span><a href="'+esc(x.path)+'" target="_blank" rel="noopener">下载 →</a><button type="button" class="copy-link" data-link="'+esc(x.path)+'">复制</button></div>').join('');
     box.innerHTML=h;
+    box.querySelectorAll('.copy-link').forEach(btn=>btn.addEventListener('click',async()=>{
+      try{await navigator.clipboard.writeText(btn.dataset.link);btn.textContent='已复制';setTimeout(()=>btn.textContent='复制',1600)}
+      catch(e){btn.textContent='请长按复制';setTimeout(()=>btn.textContent='复制',1800)}
+    }));
   }catch(e){box.innerHTML='<div class="err">网络错误，请稍后重试</div>'}
   $('#go').disabled=false;
 };
