@@ -3,6 +3,7 @@ check:
 	go vet ./...
 	go test -race -count=1 ./...
 	node --test web/frontend.test.cjs
+	python3 -m unittest discover -s deploy -p '*_test.py'
 	@test -z "$$(gofmt -l *.go)"
 	git diff --check
 

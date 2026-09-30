@@ -8,3 +8,5 @@ config.yaml
 *.db-shm
 *.db-journal
 coverage.out
+
+__pycache__/
