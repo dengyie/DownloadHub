@@ -12,9 +12,9 @@ import (
 // 用法:
 //
 //	# 新模式: 卡绑定具体资源路径列表
-//	cardgw gencard --quota N --resource pub/文件A.zip,pub/说明.txt [--days D]
+//	cardgw gencard --quota N --resource private/文件A.zip,private/说明.txt [--days D]
 //	# 旧模式: 卡绑定前缀权限组
-//	cardgw gencard --quota 10 --group vip --prefix /pub/,/exclusive/ [--days 30]
+//	cardgw gencard --quota 10 --group vip --prefix /exclusive/ [--days 30]
 //	cardgw listcards
 //	cardgw revokecard --card <id>
 func RunGen(args []string, dbPath string) {
@@ -27,7 +27,10 @@ func RunGen(args []string, dbPath string) {
 	if len(args) > 0 {
 		cmd = args[0]
 	}
-	flagArgs := args[1:]
+	var flagArgs []string
+	if len(args) > 0 {
+		flagArgs = args[1:]
+	}
 
 	fs := flag.NewFlagSet("cardgw", flag.ExitOnError)
 	var quota, group, prefix, resource, days, card, db string
@@ -43,27 +46,53 @@ func RunGen(args []string, dbPath string) {
 		dbPath = db
 	}
 
-	dbConn, err := openDB(dbPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "open db:", err)
-		os.Exit(1)
+	// Validate the complete command before opening (and potentially migrating) a database.
+	fail := func(err error) { fmt.Fprintln(os.Stderr, "cardgw:", err); os.Exit(1) }
+	if fs.NArg() != 0 {
+		fail(fmt.Errorf("不接受位置参数: %v", fs.Args()))
 	}
-	defer dbConn.Close()
-
+	var q, d int
+	var ttl *int
+	var resources, prefixes []string
 	switch cmd {
 	case "gencard":
-		q, _ := strconv.Atoi(quota)
-		d, _ := strconv.Atoi(days)
-		var ttl *int
-		if d > 0 {
-			ttl = &d
+		fs.Visit(func(f *flag.Flag) {
+			if (f.Name == "resource" || f.Name == "prefix") && f.Value.String() == "" {
+				fail(fmt.Errorf("%s 不能为空", f.Name))
+			}
+		})
+		var err error
+		q, err = strconv.Atoi(quota)
+		if err != nil {
+			fail(fmt.Errorf("quota 必须为整数"))
 		}
-		resources := splitNonEmpty(resource, ",")
-		prefixes := splitNonEmpty(prefix, ",")
-		if len(resources) == 0 && len(prefixes) == 0 {
-			// 都没指定时: 默认按 group 走前缀模式(兼容旧行为)
-			prefixes = defaultPrefixes(group)
+		d, err = strconv.Atoi(days)
+		if err != nil {
+			fail(fmt.Errorf("days 必须为整数"))
 		}
+		ttl = &d
+		resources, prefixes = parseCardList(resource), parseCardList(prefix)
+		if err := validateCardInput(q, group, prefixes, resources, ttl); err != nil {
+			fail(err)
+		}
+		if d == 0 {
+			ttl = nil
+		}
+	case "revokecard":
+		if card == "" {
+			fail(fmt.Errorf("revokecard 需要 --card"))
+		}
+	case "listcards":
+	default:
+		fail(fmt.Errorf("用法: cardgw gencard|listcards|revokecard [参数]"))
+	}
+	dbConn, err := openDB(dbPath)
+	if err != nil {
+		fail(fmt.Errorf("open db: %w", err))
+	}
+	defer dbConn.Close()
+	switch cmd {
+	case "gencard":
 		card, err := CreateCard(dbConn, q, group, prefixes, resources, ttl)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gencard:", err)
@@ -85,43 +114,21 @@ func RunGen(args []string, dbPath string) {
 		if len(card.Resources) > 0 {
 			fmt.Printf("兑换页: https://download.mangoqwq.com/redeem\n")
 		} else {
-			fmt.Printf("下载用法: /dl%s?card=%s&key=%s\n",
+			fmt.Printf("下载确认页: /dl%s?card=%s&key=%s\n",
 				card.Prefixes[0], card.CardID, card.Secret)
-			fmt.Printf("(上述为示例;实际以文件完整路径拼接)\n")
+			fmt.Printf("(将前缀替换为完整资源路径；打开页面不扣次，需点击签发按钮以 POST 确认下载授权)\n")
 		}
 
 	case "listcards":
 		listCardsOut(dbConn)
 
 	case "revokecard":
-		if card == "" {
-			fmt.Fprintln(os.Stderr, "用法: cardgw revokecard --card <卡号> [--db <path>]")
-			os.Exit(1)
-		}
 		if err := RevokeCard(dbConn, card); err != nil {
 			fmt.Fprintln(os.Stderr, "revoke:", err)
 			os.Exit(1)
 		}
 		fmt.Printf("卡 %s 已吊销\n", card)
 
-	default:
-		fmt.Fprintln(os.Stderr, "用法:")
-		fmt.Fprintln(os.Stderr, "  # 绑资源(推荐): cardgw gencard --quota N --resource pub/a.zip,pub/b.txt [--days D] [--db PATH]")
-		fmt.Fprintln(os.Stderr, "  # 绑前缀(兼容): cardgw gencard --quota N --group g --prefix /pub/,/share/ [--days D]")
-		fmt.Fprintln(os.Stderr, "  cardgw listcards [--db PATH]")
-		fmt.Fprintln(os.Stderr, "  cardgw revokecard --card <id> [--db PATH]")
-		os.Exit(1)
-	}
-}
-
-func defaultPrefixes(group string) []string {
-	switch group {
-	case "guest":
-		return []string{"/pub/"}
-	case "member":
-		return []string{"/pub/", "/share/"}
-	default: // vip
-		return []string{"/pub/", "/share/", "/exclusive/"}
 	}
 }
 

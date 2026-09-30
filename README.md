@@ -1,137 +1,88 @@
 # cardgw — 卡密资源下载网关
 
-自研 Go 实现的卡密授权下载网关，底层对接 **OpenList**（文件存储 + 签名直链）。用于"外部分发卡密 → 用户到站点兑换/下载资源"的分发授权闭环。
+Go + SQLite + OpenList 的资源授权服务。用户输入卡密查看资源，以 POST 明确签发下载授权；同一凭证在固定有效期内可恢复，最多扣一次额度。HTML/CSS/JS 和品牌资源内嵌，仍以单二进制部署。
 
-> 内部分发用途。卡密可绑定**具体资源**（推荐）或按**路径前缀**（兼容旧模型）。
+**本分支未部署生产。** 本次包含数据库与协议升级，不可将旧二进制接回迁移后的数据库。生产核验发现公开资源映射、日志/IP 转发以及尚未验证的签名期限问题，详见 [生产核验与发布步骤](docs/production-readiness.md)。
 
-## 架构
+阶段完成情况、验证证据和未决项见 [实施状态](docs/implementation-status.md)。
 
-```
-                兑换页 /redeem (输卡号+密钥)
-                       │ POST /api/redeem
-                       ▼
-用户 ── GET /dl/<path>?token=<一次性token> ──▶ [cardgw :8080]
-       │                                          │ ① 验 token:资源绑定/未过期/未使用/卡有效
-       │                                          │ ② 调 OpenList /api/fs/get 拿签名直链
-       │                                          │ ③ 原子 claim + 扣次数 + 标记 token 已消费
-       │                                          │ ④ 302 到签名直链(仅带 sign)
-       └─ /redeem POST 卡号+密钥 → 返回每个资源的 10 分钟一次性 token
+## 开发与验证
 
-旧版 `/dl/<path>?card=&key=` 仍兼容，但新兑换页不再生成此类 URL。
+要求 Go 1.26.4+、Node.js 22+（仅用于前端测试）。
+
+```sh
+make check
+make build-linux
 ```
 
-- 网关监听 `127.0.0.1:8080`（本机回环，由 nginx 反代对外）
-- 存储：SQLite（`card_id`、`secret_hash` 验卡、`quota` 次数、`resources`/`prefixes` 授权、`expires_at` 到期、`revoked` 吊销、`download_tokens` 一次性 token）
-- 卡密明文只在 `gencard` 生成时输出一次；数据库迁移后 `secret` 清空，仅保存 SHA-256 hash；`listcards` 默认不显示密钥
-- 前置：需外部提供一个 OpenList（或任意提供"按路径取签名直链"API 的后端）
+后端测试使用临时 SQLite 和本地模拟 HTTP 服务；不需要真实 OpenList 密码。前端测试使用 Node 内置 test runner，包括 DOM 事件流程，无 npm 依赖。
 
-## 环境要求
+## 配置与运行
 
-- Go 1.26+（开发/构建）
-- OpenList 实例（生产必需，提供 `/api/fs/get` 签名直链接口）；配置见 `config.yaml.example`
-- 部署运行：Linux x86_64（`CGO_ENABLED=0` 交叉编译产物）
+复制 `config.yaml.example` 到受限配置文件，填入实际 OpenList 凭据。必须先核验签名 URL 的**最短剩余有效期**、公网可达路径及 host，再设置 `openlist_min_url_ttl_seconds` 和 `download_hosts`。示例中的 0 会阻止启动，避免用假定的期限签发可恢复授权。
 
-## 构建
-
-```bash
-# 开发验证
-gofmt -w *.go && go vet ./... && go test -count=1 ./...
-
-# 本机跑
+```sh
 go build -o cardgw .
-
-# 交叉编译部署(DGN-VPS linux amd64)
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o cardgw-linux-amd64 .
+./cardgw serve --config config.yaml
+./cardgw version
 ```
 
-## 卡模型（两种，资源绑定优先）
+签名地址仅允许 http/https 或根相对路径；绝对地址必须匹配 `download_hosts`。仅列入 `trusted_proxy_cidrs` 的网络对端可提供 `X-Real-IP`，其他请求按 RemoteAddr 的 IP 限流，不包含源端口。兑换和签发分别限流；每卡最多保留 500 个尚未扣次的凭证，达到上限返回 429，过期清理后恢复容量。
 
-| 模型 | CLI | 授权判断 | 适用 |
-|---|---|---|---|
-| **资源绑定卡**(推荐) | `--resource "pub/a.zip,pub/b.txt"` | 精确匹配 `HasResource` | 卖具体一份资源 |
-| **前缀权限卡**(兼容旧) | `--prefix /pub/,/share/` | 前缀 `Allowed` | 会员整目录下载 |
+`public_prefixes` 必须与 nginx 公开 alias 一致。默认 `pub/` 不接受付费授权签发，避免用户为可公开获取的文件扣次；这不能替代存储侧访问隔离。
 
-## CLI 用法
+## 发卡与管理
 
-```bash
-# 启动网关(需 config.yaml)
-cardgw serve -config config.yaml
+资源必须实际位于受保护存储中；下面路径仅为示例，需在 OpenList 配置后使用。
 
-# 生成资源绑定卡: 1份资源, 可下3次, 30天有效
-cardgw gencard --quota 3 --resource "pub/manual.txt,pub/sample.zip" --days 30
-
-# 生成前缀卡(旧模型)
-cardgw gencard --quota 10 --group vip --prefix /pub/,/share/ --days 30
-
-# 查卡/吊销
-cardgw listcards
-cardgw revokecard --card <卡号>
+```sh
+./cardgw gencard --quota 3 --resource private/manual.zip --days 30 --db cards.db
+./cardgw listcards --db cards.db
+./cardgw revokecard --card CARD_ID --db cards.db
+./cardgw backup --db cards.db --out cards-snapshot.db
 ```
 
-生成资源卡后输出示例：
+- 明文密钥仅发卡时显示；数据库只保存 hash。禁止将真实输出粘贴到日志或提交到 Git。
+- 新卡必须显式指定 `--resource` 或 `--prefix`，不按权限组自动授予目录访问权。
+- `--days 0` 明确表示永久；非法整数、负数、时长溢出、未知权限组和非法路径均在打开数据库前拒绝。
+- 最多 100 个资源，每条路径最多 2048 字节；支持中文、空格及字面 `%20`，拒绝含歧义分隔符、路径穿越和控制字符的路径。
+- 旧前缀卡可在页面填写具体资源路径，仍校验其前缀；暂保留是因为外部分发链接使用情况未完全核实。
+- `backup` 只读打开源库，使用 SQLite `VACUUM INTO` 创建一致性快照并验证 integrity_check，不迁移源库，不覆盖已有文件。其他数据库命令会按版本自动迁移，生产必须按维护窗口流程执行。
 
-```
-卡已生成: 卡号=27b63edc 密钥=94549883c84bf467
-  次数=3 权限组=member 资源=[pub/manual.txt pub/sample.zip] 到期=2026-09-15
-兑换页: https://download.mangoqwq.com/redeem
-```
+## API
 
-把 `卡号+密钥` 分发给购买者；他们到兑换页输入即可列出并下载绑定资源。
+| 请求 | 行为 |
+|---|---|
+| GET `/redeem` | 兑换页 |
+| POST `/api/redeem` | 表单 `card`、`key`；旧前缀卡另传 `resource`，返回资源凭证，不扣次 |
+| POST `/api/grants` | 表单 `credential`；签发或恢复同一授权，返回 `url`、`expires_at`、`grant_id`、当前 `quota` |
+| GET/HEAD `/dl/PATH?...` | 历史链接确认页；无自动签发、无扣次。浏览器清理敏感查询参数，用户点击后以 POST 确认 |
+| GET `/health` | 进程版本与存活 |
+| GET `/ready` | 数据库就绪及基础请求计数；不代表 OpenList 已可用 |
 
-## 兑换页
+请求体上限 8 KiB；仅接受 POST 表单中的卡密/凭证，不接受 query 中的 API 卡密。错误使用 HTTP 状态、数字 `code`、稳定 `error` 和用户可读 `msg`。409 表示处理中或公开资源冲突；410 到期；429 限流；502 后端故障；504 总预算超时。
 
-GET `/redeem` 返回内嵌 HTML（`redeem_html.go` 常量，单二进制无静态依赖）：
+同一凭证重试不会重复扣次。再次点击“查看可用资源”会产生新凭证，因此是新的签发操作。凭证只保存在页面内存，刷新页面会丢失恢复入口。签发后显式点击“打开下载链接”在新页面下载，兑换页保留恢复入口，也可复制完整 URL；签名链接自身在其有效期内可能被复用，**网关不证明文件已完整下载，也不保证已发出的签名 URL 能立即撤回**。
 
-1. 用户输入卡号 + 密钥
-2. 前端 `POST /api/redeem` → 后端校验 → 为每个绑定资源创建 10 分钟一次性 token
-3. 返回 `/dl/<path>?token=<token>` 资源链接；token 只绑定一个资源、只能使用一次
-4. 用户点击资源 → 网关鉴权 → 事务扣次数并消费 token → 302 签名直链下载
+## 状态、存储和迁移
 
-兑换 API 响应示例：
+- `ready → processing → issued`；处理中使用处理者 ID 和到期租约，旧请求不能提交或释放新租约。
+- 网络请求不占数据库事务；最终事务重验卡状态/资源/额度，将扣次、唯一事件和签发结果一起提交。
+- quota=0 不阻止恢复既有授权；吊销、卡到期或资源授权变化会拒绝服务端恢复。
+- 依赖调用、登录和重试共用 8 秒预算；请求总预算 10 秒，写超时 15 秒。提交前取消不扣次；提交后响应丢失通过同一凭证恢复。
+- 清理每分钟有界执行；过期 URL 立即进入清理范围，扣次审计默认保留 90 天。
+- schema 1 将历史时间转换为 UTC epoch 毫秒，将卡资源列表转为 JSON；移除明文 secret 列和旧 download_tokens 表。
+- 历史未用 token 迁移为 ready，已用/已过期 token 迁移为 expired；旧处理中 token 仅在停止全部旧写入者之后迁移为 ready。不得在线混跑新旧程序。
+- 迁移在一个事务中完成，未知日期/不合法数据导致失败回滚；未来 schema 拒绝打开。不开启未经文件系统验证的 WAL。
 
-```json
-{"code":200,"msg":"ok","quota":3,"resources":[{"name":"manual.txt","path":"/dl/pub/manual.txt?token=<one-time-token>"}]}
-```
+设计边界与测试矩阵见 [DESIGN.md](DESIGN.md)。
 
-旧版 `/dl/<path>?card=&key=` 保留兼容，但不应继续生成或分发。
+## 发布
 
-## nginx 反代参考
+[nginx 参考配置](deploy/download-nginx.conf.example) 仅精确代理兑换页的两个 assets，避免接管 acg-faka 的整个 `/assets/`。生产必须执行实际 nginx 配置检查、SQLite 恢复演练、签名期限测试和受保护资源探针，再切换单一写入服务。
 
-```nginx
-location /dl/    { proxy_pass http://127.0.0.1:8080; ... }
-location /redeem { proxy_pass http://127.0.0.1:8080; ... }
-location /api/   { proxy_pass http://127.0.0.1:8080; ... }   # 兑换 API
-location /p/     { proxy_pass http://127.0.0.1:5244; ... }   # OpenList 签名直链前缀
-location /files/  { return 404; }                              # OpenList 前台关闭,避免子路径冲突
-```
+新状态产生业务数据后，回退数据库会丢失新增卡、吊销、授权和扣次。应优先前向修复；必须回滚时停写并对账，不能盲目恢复旧快照。
 
-nginx 站点使用不含 query string 的 `download_safe` access log，并给兑换/下载路由添加 `nosniff`、`SAMEORIGIN`、`no-referrer` 响应头。cardgw 内置按 IP 限流：兑换每分钟 20 次、下载每分钟 120 次。
+## License
 
-> ⚠️ `/p/` 必须反代到 OpenList，否则 302 后的签名直链 `/p/*` 会落到应用层 → 404。
-
-## 部署到服务器（systemd 参考）
-
-```bash
-scp cardgw-linux-amd64 root@host:/root/cardgw/cardgw
-systemctl restart cardgw          # 升级; 先备份旧二进制与 cards.db
-curl -s 127.0.0.1:8080/health     # {"status":"ok"}
-```
-
-## 测试
-
-`cardstore_test.go` / `download_test.go` / `openlist_test.go` 覆盖：卡创建/验卡/过期/吊销/次数扣减、资源绑定与精确授权、前缀兼容、一次性 token 生命周期/原子 claim/重放保护、路径穿越拒绝、旧明文卡迁移 hash、OpenList token 失效自动重试。运行：
-
-```bash
-gofmt -w *.go
-go vet ./...
-go test -race -count=1 ./...
-```
-
-## 兼容性 / 迁移
-
-- 旧库无 `resources` 列：`openDB` 自动 `ALTER TABLE ADD COLUMN`（幂等）。
-- 旧前缀卡继续按 `prefixes` 授权，与新资源绑定卡并存。
-
-## LICENSE
-
-[MIT](./LICENSE) © dengyie
+[MIT](LICENSE)

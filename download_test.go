@@ -1,280 +1,203 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestNormalizeResource 边界路径规范化
-func TestNormalizeResource(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"pub/a.zip", "pub/a.zip"},
-		{"/pub/a.zip", "pub/a.zip"},
-		{"pub/a.zip/", "pub/a.zip"},
-		{"/pub/a.zip/", "pub/a.zip"},
-		{"  pub/a.zip  ", "pub/a.zip"},
-		{"pub", "pub"},
-		{"/pub/", "pub"},
-	}
-	for _, c := range cases {
-		if got := normalizeResource(c.in); got != c.want {
-			t.Errorf("normalizeResource(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
+type fakeOL struct {
+	get func(context.Context, string) (string, error)
 }
 
-func TestValidateResourcePath(t *testing.T) {
-	for _, path := range []string{"pub/../secret.zip", "pub/./secret.zip", "../secret.zip", "pub//secret.zip"} {
-		if err := validateResourcePath(path); err == nil {
-			t.Fatalf("path %q should be rejected", path)
-		}
+func (f *fakeOL) GetRawURL(ctx context.Context, path, password string) (string, error) {
+	if f.get != nil {
+		return f.get(ctx, path)
 	}
-	if err := validateResourcePath("pub/secret.zip"); err != nil {
-		t.Fatalf("valid path rejected: %v", err)
-	}
+	return "https://files.example" + path, nil
 }
-
-// fakeOL 实现 olClient 接口, 返回固定直链用于 handler 测试
-type fakeOL struct{}
-
-func (f *fakeOL) GetRawURL(path, password string) (string, error) {
-	return "https://dl.example.com" + path, nil
-}
-
-func (f *fakeOL) ensureToken() error { return nil }
-
-// TestHandleDownloadResourceBound: 资源绑定卡的下载精确鉴权
-func TestHandleDownloadResourceBound(t *testing.T) {
+func testHandler(t *testing.T) (*handler, *Card) {
+	t.Helper()
 	db := newTestDB(t)
-	c, _ := CreateCard(db, 5, "member", nil, []string{"pub/a.zip"}, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-
-	req, _ := http.NewRequest("GET", "/dl/pub/a.zip?card="+c.CardID+"&key="+c.Secret, nil)
+	c, e := CreateCard(db, 2, "member", nil, []string{"private/a%20b.zip"}, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg := defaultConfig()
+	cfg.MinURLTTLSeconds = 600
+	cfg.DownloadHosts = []string{"files.example"}
+	return newHandler(db, &fakeOL{}, cfg), c
+}
+func postForm(h http.Handler, path string, values url.Values) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", path, strings.NewReader(values.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	h.handleDownload(w, req)
-	if w.Code != http.StatusFound {
-		t.Fatalf("resource-bound download: got %d, want 302 (body=%s)", w.Code, w.Body.String())
-	}
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/pub/a.zip") {
-		t.Fatalf("redirect Location=%q, want contains /pub/a.zip", loc)
-	}
-
-	// 未绑定资源应 403
-	req2, _ := http.NewRequest("GET", "/dl/pub/b.zip?card="+c.CardID+"&key="+c.Secret, nil)
-	w2 := httptest.NewRecorder()
-	h.handleDownload(w2, req2)
-	if w2.Code != http.StatusForbidden {
-		t.Fatalf("unbound resource: got %d, want 403", w2.Code)
-	}
+	h.ServeHTTP(w, r)
+	return w
 }
-
-// TestHandleDownloadPrefixCompatible: 前缀卡的旧模式下载鉴权
-func TestHandleDownloadPrefixCompatible(t *testing.T) {
-	db := newTestDB(t)
-	c, _ := CreateCard(db, 3, "guest", []string{"/pub/"}, nil, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-
-	req, _ := http.NewRequest("GET", "/dl/pub/anything.txt?card="+c.CardID+"&key="+c.Secret, nil)
-	w := httptest.NewRecorder()
-	h.handleDownload(w, req)
-	if w.Code != http.StatusFound {
-		t.Fatalf("prefix download: got %d, want 302", w.Code)
-	}
-
-	// 前缀外(exclusive)应 403
-	req2, _ := http.NewRequest("GET", "/dl/exclusive/secret.bin?card="+c.CardID+"&key="+c.Secret, nil)
-	w2 := httptest.NewRecorder()
-	h.handleDownload(w2, req2)
-	if w2.Code != http.StatusForbidden {
-		t.Fatalf("prefix-denied: got %d, want 403", w2.Code)
-	}
-}
-
-// TestHandleDownloadWrongKey: 错误密钥 403
-func TestHandleDownloadWrongKey(t *testing.T) {
-	db := newTestDB(t)
-	c, _ := CreateCard(db, 1, "guest", []string{"/pub/"}, nil, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-	req, _ := http.NewRequest("GET", "/dl/pub/a.txt?card="+c.CardID+"&key=wrong", nil)
-	w := httptest.NewRecorder()
-	h.handleDownload(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("wrong key: got %d, want 403", w.Code)
-	}
-}
-
-// TestHandleDownloadQuotaLimit: 次数用尽后 403
-func TestHandleDownloadQuotaLimit(t *testing.T) {
-	db := newTestDB(t)
-	c, _ := CreateCard(db, 1, "guest", []string{"/pub/"}, nil, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-	// 第1次成功
-	r1, _ := http.NewRequest("GET", "/dl/pub/a.txt?card="+c.CardID+"&key="+c.Secret, nil)
-	w1 := httptest.NewRecorder()
-	h.handleDownload(w1, r1)
-	if w1.Code != http.StatusFound {
-		t.Fatalf("first consume: got %d, want 302", w1.Code)
-	}
-	// 第2次(次数耗尽)403
-	r2, _ := http.NewRequest("GET", "/dl/pub/a.txt?card="+c.CardID+"&key="+c.Secret, nil)
-	w2 := httptest.NewRecorder()
-	h.handleDownload(w2, r2)
-	if w2.Code != http.StatusForbidden {
-		t.Fatalf("quota exhausted: got %d, want 403", w2.Code)
-	}
-}
-
-// TestHandleRedeemAPI: 兑换 API 返回资源列表
-func TestHandleRedeemAPI(t *testing.T) {
-	db := newTestDB(t)
-	c, _ := CreateCard(db, 3, "member", nil, []string{"pub/a.zip", "pub/b.txt"}, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-
-	body := "card=" + c.CardID + "&key=" + c.Secret
-	req, _ := http.NewRequest("POST", "/api/redeem", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	h.handleRedeemAPI(w, req)
-
+func redeemCredential(t *testing.T, h *handler, c *Card) string {
+	t.Helper()
+	w := postForm(h.routes(), "/api/redeem", url.Values{"card": {c.CardID}, "key": {c.Secret}})
 	if w.Code != 200 {
-		t.Fatalf("redeem api: got %d, want 200", w.Code)
+		t.Fatal(w.Code, w.Body.String())
 	}
-	var resp struct {
-		Code      int
-		Msg       string
-		Quota     int
-		Resources []struct {
-			Name string
-			Path string
+	var out struct{ Resources []resourceItem }
+	if e := json.Unmarshal(w.Body.Bytes(), &out); e != nil {
+		t.Fatal(e)
+	}
+	if len(out.Resources) != 1 {
+		t.Fatal(out)
+	}
+	return out.Resources[0].Credential
+}
+func TestHTTPGrantLifecycle(t *testing.T) {
+	h, c := testHandler(t)
+	key := redeemCredential(t, h, c)
+	w := postForm(h.routes(), "/api/grants", url.Values{"credential": {key}})
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var first map[string]any
+	json.Unmarshal(w.Body.Bytes(), &first)
+	if first["quota"] != float64(1) || !strings.Contains(first["url"].(string), "a%20b.zip") {
+		t.Fatal(first)
+	}
+	again := postForm(h.routes(), "/api/grants", url.Values{"credential": {key}})
+	var second map[string]any
+	json.Unmarshal(again.Body.Bytes(), &second)
+	if first["grant_id"] != second["grant_id"] || second["quota"] != float64(1) {
+		t.Fatal(second)
+	}
+	if again.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("cached secret")
+	}
+	RevokeCard(h.db, c.CardID)
+	if w = postForm(h.routes(), "/api/grants", url.Values{"credential": {key}}); w.Code != 403 {
+		t.Fatal(w.Code)
+	}
+}
+func TestDownloadGETAndHEADNeverCharge(t *testing.T) {
+	h, c := testHandler(t)
+	key := redeemCredential(t, h, c)
+	for _, method := range []string{"GET", "HEAD"} {
+		w := httptest.NewRecorder()
+		h.routes().ServeHTTP(w, httptest.NewRequest(method, DownloadPathWithToken("private/a%20b.zip", key), nil))
+		if w.Code != 200 {
+			t.Fatal(w.Code)
+		}
+		got, _ := loadCard(h.db, c.CardID)
+		if got.Quota != 2 {
+			t.Fatal("GET consumed")
 		}
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+}
+func TestGrantBackendFailureReleases(t *testing.T) {
+	h, c := testHandler(t)
+	key := redeemCredential(t, h, c)
+	h.service.backend = &fakeOL{get: func(context.Context, string) (string, error) { return "", errors.New("secret backend payload") }}
+	w := postForm(h.routes(), "/api/grants", url.Values{"credential": {key}})
+	if w.Code != 502 || strings.Contains(w.Body.String(), "secret") {
+		t.Fatal(w.Code, w.Body.String())
 	}
-	if resp.Code != 200 || resp.Quota != 3 {
-		t.Fatalf("code=%d quota=%d", resp.Code, resp.Quota)
-	}
-	if len(resp.Resources) != 2 {
-		t.Fatalf("resource count=%d, want 2", len(resp.Resources))
-	}
-	if resp.Resources[0].Name != "a.zip" {
-		t.Fatalf("resource name=%q, want a.zip", resp.Resources[0].Name)
+	h.service.backend = &fakeOL{}
+	if w = postForm(h.routes(), "/api/grants", url.Values{"credential": {key}}); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }
-
-// TestHandleRedeemAPIBadKey: 错误密钥返回值校验
-func TestHandleRedeemAPIBadKey(t *testing.T) {
-	db := newTestDB(t)
-	c, _ := CreateCard(db, 1, "guest", []string{"/pub/"}, nil, nil)
-	h := &handler{db: db, ol: &fakeOL{}}
-	req, _ := http.NewRequest("POST", "/api/redeem", strings.NewReader("card="+c.CardID+"&key=wrong"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	h.handleRedeemAPI(w, req)
-	if w.Code != 403 {
-		t.Fatalf("bad key: got %d, want 403", w.Code)
+func TestGrantDeadlineNoChargeAndRetry(t *testing.T) {
+	h, c := testHandler(t)
+	key := redeemCredential(t, h, c)
+	h.service.budget = 20 * time.Millisecond
+	h.service.backend = &fakeOL{get: func(ctx context.Context, _ string) (string, error) {
+		<-ctx.Done()
+		return "https://files.example/a", nil
+	}}
+	w := postForm(h.routes(), "/api/grants", url.Values{"credential": {key}})
+	if w.Code != 504 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	got, _ := loadCard(h.db, c.CardID)
+	if got.Quota != 2 {
+		t.Fatal(got.Quota)
+	}
+	h.service.backend = &fakeOL{}
+	if w = postForm(h.routes(), "/api/grants", url.Values{"credential": {key}}); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }
-
-func TestDownloadTokenLifecycle(t *testing.T) {
-	db := newTestDB(t)
-	c, err := CreateCard(db, 2, "member", nil, []string{"pub/a file.zip"}, nil)
-	if err != nil {
+func TestGrantCancellationNoCharge(t *testing.T) {
+	h, c := testHandler(t)
+	key := redeemCredential(t, h, c)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.service.backend = &fakeOL{get: func(context.Context, string) (string, error) { cancel(); return "https://files.example/a", nil }}
+	if _, err := h.service.issue(ctx, key); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	token, err := CreateDownloadToken(db, c.CardID, "pub/a file.zip", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := VerifyDownloadToken(db, token, "pub/other.zip"); err == nil {
-		t.Fatal("token should be bound to one resource")
-	}
-	if _, err := VerifyDownloadToken(db, token, "pub/a file.zip"); err != nil {
-		t.Fatalf("verify token: %v", err)
-	}
-	if _, err := ClaimDownloadToken(db, token, "pub/a file.zip"); err != nil {
-		t.Fatalf("claim token: %v", err)
-	}
-	left, err := ConsumeDownloadToken(db, token)
-	if err != nil || left != 1 {
-		t.Fatalf("consume token: left=%d err=%v", left, err)
-	}
-	if _, err := ConsumeDownloadToken(db, token); err == nil {
-		t.Fatal("token must be one-time")
+	got, _ := loadCard(h.db, c.CardID)
+	if got.Quota != 2 {
+		t.Fatal(got.Quota)
 	}
 }
-
-func TestDownloadPathWithTokenEscapesSegments(t *testing.T) {
-	path := DownloadPathWithToken("pub/a file.zip", "tok")
-	want := "/dl/pub/a%20file.zip?token=tok"
-	if path != want {
-		t.Fatalf("path=%q want=%q", path, want)
+func TestPublicResourceRefusesCharge(t *testing.T) {
+	h, _ := testHandler(t)
+	c, e := CreateCard(h.db, 2, "member", nil, []string{"pub/manual.txt"}, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	w := postForm(h.routes(), "/api/redeem", url.Values{"card": {c.CardID}, "key": {c.Secret}})
+	if w.Code != 409 {
+		t.Fatal(w.Code)
+	}
+	items, _ := h.service.store.create(context.Background(), c, c.Resources, time.Minute)
+	w = postForm(h.routes(), "/api/grants", url.Values{"credential": {items[0].Credential}})
+	if w.Code != 409 {
+		t.Fatal(w.Code)
 	}
 }
-
-func TestClaimDownloadTokenIsAtomic(t *testing.T) {
-	db := newTestDB(t)
-	c, err := CreateCard(db, 2, "member", nil, []string{"pub/a.zip"}, nil)
-	if err != nil {
-		t.Fatal(err)
+func TestPrefixCardExplicitResource(t *testing.T) {
+	h, _ := testHandler(t)
+	c, e := CreateCard(h.db, 2, "member", []string{"/private/"}, nil, nil)
+	if e != nil {
+		t.Fatal(e)
 	}
-	token, err := CreateDownloadToken(db, c.CardID, "pub/a.zip", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	results := make(chan error, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			_, claimErr := ClaimDownloadToken(db, token, "pub/a.zip")
-			results <- claimErr
-		}()
-	}
-	var success int
-	for i := 0; i < 2; i++ {
-		if <-results == nil {
-			success++
+	for _, p := range []string{"private/a", "exclusive/a"} {
+		w := postForm(h.routes(), "/api/redeem", url.Values{"card": {c.CardID}, "key": {c.Secret}, "resource": {p}})
+		want := 200
+		if p == "exclusive/a" {
+			want = 403
+		}
+		if w.Code != want {
+			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	if success != 1 {
-		t.Fatalf("claim success count=%d, want 1", success)
+}
+func TestRedeemRejectsBodyOverflowAndQueryCredentials(t *testing.T) {
+	h, c := testHandler(t)
+	w := postForm(h.routes(), "/api/redeem?card="+c.CardID+"&key="+c.Secret, url.Values{})
+	if w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	w = postForm(h.routes(), "/api/redeem", url.Values{"card": {strings.Repeat("x", 9000)}, "key": {"k"}})
+	if w.Code != 400 {
+		t.Fatal(w.Code)
 	}
 }
-
-func TestLegacySecretMigratesToHash(t *testing.T) {
-	dir := t.TempDir()
-	path := dir + "/legacy.db"
-	db0, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
+func TestPathValidationRoundTrip(t *testing.T) {
+	for _, p := range []string{"private/中文.zip", "private/a b.zip", "private/a%20b.zip", "private/a%2Fb.zip"} {
+		r := httptest.NewRequest("GET", DownloadPathWithToken(p, "t"), nil)
+		if got := strings.TrimPrefix(r.URL.Path, "/dl/"); got != p {
+			t.Fatal(got, p)
+		}
 	}
-	_, err = db0.Exec(`CREATE TABLE cards (card_id TEXT PRIMARY KEY, secret TEXT NOT NULL, quota INTEGER NOT NULL, perm_group TEXT NOT NULL DEFAULT '', prefixes TEXT NOT NULL DEFAULT '', resources TEXT NOT NULL DEFAULT '', expires_at DATETIME, created_at DATETIME NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db0.Exec(`INSERT INTO cards(card_id,secret,quota,perm_group,prefixes,resources,created_at,revoked) VALUES('legacy','old-secret',1,'guest','/pub/','',CURRENT_TIMESTAMP,0)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db0.Close()
-	db, err := openDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := VerifyCard(db, "legacy", "old-secret"); err != nil {
-		t.Fatalf("legacy secret should verify after migration: %v", err)
-	}
-	var secret, hash string
-	if err := db.QueryRow(`SELECT secret, secret_hash FROM cards WHERE card_id='legacy'`).Scan(&secret, &hash); err != nil {
-		t.Fatal(err)
-	}
-	if secret != "" || hash == "" {
-		t.Fatalf("legacy secret not migrated: secret=%q hash=%q", secret, hash)
+	for _, p := range []string{"a/../b", "a/./b", "a//b", "a\\b", "/", "a\x00b"} {
+		if validateResourcePath(p) == nil {
+			t.Fatal(p)
+		}
 	}
 }

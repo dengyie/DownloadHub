@@ -1,0 +1,80 @@
+# Include inside nginx's http {}. Requires http_realip_module.
+# REVIEW ONLY: do not replace unrelated host sites. CF Tunnel ingress MUST target
+# http://127.0.0.1:80; no other public listener may expose this server block.
+# Only local cloudflared is trusted here; local processes are privileged peers.
+log_format download_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
+                         '$status $body_bytes_sent $request_time';
+
+server {
+    listen 127.0.0.1:80;
+    server_name download.mangoqwq.com;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header CF-Connecting-IP;
+    real_ip_recursive off;
+    access_log /personal/pxed/nginx/logs/download-safe.log download_safe;
+    # nginx error logs can include raw request lines. Keep them restricted and
+    # never enable debug logging for production authorization requests.
+    error_log /personal/pxed/nginx/logs/download-error.log crit;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy no-referrer always;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    # Overwrite, do not append untrusted client input.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header CF-Connecting-IP "";
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 20s;
+    proxy_cache off;
+
+    location = /health { return 404; }
+    location = /ready { return 404; }
+    location = /metrics { return 404; }
+    location /files/ { return 404; }
+
+    location = /redeem { proxy_pass http://127.0.0.1:8080; }
+    location /brand/ { proxy_pass http://127.0.0.1:8080; }
+    # acg-faka owns other /assets/ paths. Do not hijack the entire prefix.
+    location = /assets/redeem.js { proxy_pass http://127.0.0.1:8080; }
+    location = /assets/redeem.css { proxy_pass http://127.0.0.1:8080; }
+    location /api/ {
+        client_max_body_size 16k;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy no-referrer always;
+    }
+    location /dl/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy no-referrer always;
+    }
+    location /p/ {
+        proxy_pass http://127.0.0.1:5244;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy no-referrer always;
+    }
+    # Public distribution only. Never place card-protected resources here.
+    # Existing manual.txt classification requires an operator decision.
+    location /pub/ {
+        alias /data/share/pub/;
+        autoindex off;
+        add_header Cache-Control "public, max-age=86400" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy no-referrer always;
+    }
+    location / { proxy_pass http://127.0.0.1:8081; }
+}

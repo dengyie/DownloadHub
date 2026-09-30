@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,11 +34,11 @@ func TestOLLogin(t *testing.T) {
 	srv := mockOpenList("tok-abc", "http://x/p/a.txt?sign=1")
 	defer srv.Close()
 	c := NewOLClient(srv.URL, "admin", "pw")
-	if err := c.login(); err != nil {
+	if _, err := c.ensureToken(context.Background()); err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	if c.Token != "tok-abc" {
-		t.Fatalf("token = %q", c.Token)
+	if c.token.value != "tok-abc" {
+		t.Fatalf("token = %q", c.token.value)
 	}
 }
 
@@ -45,7 +46,7 @@ func TestGetRawURL(t *testing.T) {
 	srv := mockOpenList("tok-1", "http://x/p/file.bin?sign=sig123")
 	defer srv.Close()
 	c := NewOLClient(srv.URL, "admin", "pw")
-	raw, err := c.GetRawURL("/pub/file.bin", "")
+	raw, err := c.GetRawURL(context.Background(), "/pub/file.bin", "")
 	if err != nil {
 		t.Fatalf("GetRawURL: %v", err)
 	}
@@ -64,11 +65,11 @@ func TestGetRawURLAuthHeaderSent(t *testing.T) {
 		}
 		sawAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"code":200,"data":{"raw_url":"u"}}`))
+		w.Write([]byte(`{"code":200,"data":{"raw_url":"/p/a"}}`))
 	}))
 	defer srv.Close()
 	c := NewOLClient(srv.URL, "admin", "pw")
-	if _, err := c.GetRawURL("/x", ""); err != nil {
+	if _, err := c.GetRawURL(context.Background(), "/x", ""); err != nil {
 		t.Fatalf("err %v", err)
 	}
 	if !strings.Contains(sawAuth, "tokX") {
@@ -86,7 +87,7 @@ func TestGetRawURLFolder(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewOLClient(srv.URL, "admin", "pw")
-	if _, err := c.GetRawURL("/dir", ""); err == nil {
+	if _, err := c.GetRawURL(context.Background(), "/dir", ""); err == nil {
 		t.Fatal("expected error for empty raw_url (folder)")
 	} else if !strings.Contains(err.Error(), "empty raw_url") {
 		t.Fatalf("unexpected err: %v", err)
@@ -122,7 +123,7 @@ func TestGetRawURLTokenInvalidated(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewOLClient(srv.URL, "admin", "pw")
-	raw, err := c.GetRawURL("/pub/f.bin", "")
+	raw, err := c.GetRawURL(context.Background(), "/pub/f.bin", "")
 	if err != nil {
 		t.Fatalf("GetRawURL: %v", err)
 	}

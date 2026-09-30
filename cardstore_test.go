@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,30 +48,16 @@ func TestCreateAndVerifyCard(t *testing.T) {
 
 func TestExpiredCard(t *testing.T) {
 	db := newTestDB(t)
-	// 直接插一张已过期的卡
-	et := time.Now().Add(-1 * time.Hour)
-	_, err := db.Exec(`INSERT INTO cards (card_id,secret,quota,perm_group,prefixes,expires_at,created_at,revoked)
-		VALUES (?,?,?,?,?,?,?,0)`, "exp", "k", 10, "guest", "/pub/", et, time.Now())
+	c, err := CreateCard(db, 1, "member", nil, []string{"private/a"}, nil)
 	if err != nil {
-		t.Fatalf("insert: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := VerifyCard(db, "exp", "k"); err == nil {
-		t.Fatal("expected expired error")
+	_, err = db.Exec(`UPDATE cards SET expires_at_ms=? WHERE card_id=?`, time.Now().Add(-time.Hour).UnixMilli(), c.CardID)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestConsumeQuota(t *testing.T) {
-	db := newTestDB(t)
-	days := 0
-	c, _ := CreateCard(db, 2, "guest", []string{"/pub/"}, nil, &days)
-	if _, err := ConsumeQuota(db, c.CardID); err != nil {
-		t.Fatalf("consume1: %v", err)
-	}
-	if _, err := ConsumeQuota(db, c.CardID); err != nil {
-		t.Fatalf("consume2: %v", err)
-	}
-	if _, err := ConsumeQuota(db, c.CardID); err == nil {
-		t.Fatal("expected error after quota exhausted")
+	if _, err = VerifyCard(db, c.CardID, c.Secret); err != ErrExpired {
+		t.Fatalf("expected expiry, got %v", err)
 	}
 }
 
@@ -201,5 +186,3 @@ func TestOpenDBMigration(t *testing.T) {
 		t.Fatal("resources not persisted after migration")
 	}
 }
-
-var _ = os.DevNull
