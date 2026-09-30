@@ -2,7 +2,7 @@
 
 Go + SQLite + OpenList 的资源授权服务。用户输入卡密查看资源，以 POST 明确签发下载授权；同一凭证在固定有效期内可恢复，最多扣一次额度。HTML/CSS/JS 和品牌资源内嵌，仍以单二进制部署。
 
-**本分支未部署生产。** 本次包含数据库与协议升级，不可将旧二进制接回迁移后的数据库。生产核验发现公开资源映射、日志/IP 转发以及尚未验证的签名期限问题，详见 [生产核验与发布步骤](docs/production-readiness.md)。
+**已部署 `ce8d92f`，生产稳定性仍受宿主 OOM 阻塞。** 实施、备份和待完成的公网验收见 [发布记录](docs/release-2026-10-01.md)。本次包含数据库与协议升级，禁止旧二进制接回迁移后的数据库。
 
 阶段完成情况、验证证据和未决项见 [实施状态](docs/implementation-status.md)。
 
@@ -74,6 +74,8 @@ go build -o cardgw .
 - schema 1 将历史时间转换为 UTC epoch 毫秒，将卡资源列表转为 JSON；移除明文 secret 列和旧 download_tokens 表。
 - 历史未用 token 迁移为 ready，已用/已过期 token 迁移为 expired；旧处理中 token 仅在停止全部旧写入者之后迁移为 ready。不得在线混跑新旧程序。
 - 迁移在一个事务中完成，未知日期/不合法数据导致失败回滚；未来 schema 拒绝打开。不开启未经文件系统验证的 WAL。
+
+运维备份使用 Python 3.10+ 的 `deploy/backup_snapshot.py`，生产按受限配置定期运行。
 
 设计边界与测试矩阵见 [DESIGN.md](DESIGN.md)。
 

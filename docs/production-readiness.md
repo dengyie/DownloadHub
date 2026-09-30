@@ -2,9 +2,13 @@
 
 ## Status and evidence boundary
 
-This development change has **not been deployed**. Production configuration, cards,
-files and databases have not been changed by this task. No production card was
-created or consumed. Code tests do not resolve the production risks below.
+The gateway is deployed at `ce8d92f`, schema 1. **Operational stability is not
+fully accepted:** host-level OOM still kills MySQL and final CDN validation is
+incomplete because of transport timeouts. See [the current release record](release-2026-10-01.md).
+The inventory table below is the historical pre-release baseline, not the current
+status of every gate. Dedicated disposable acceptance cards were created/revoked;
+no pre-existing customer card was consumed. MySQL was recovered to a clean datadir,
+OpenList and nginx configuration were updated, and persistent backups are running.
 
 Read-only inventory: 2026-09-30, through the existing `ssh pxed` alias. Authority:
 Obsidian **下载站项目总览**, specifically its 2026-09-29 pxed migration record.
@@ -23,19 +27,19 @@ Credentials were read only inside the remote process when needed; none are inclu
 
 Current supervisor definitions are under `/personal/pxed/supervisor-*.conf`.
 nginx uses `/personal/pxed/nginx/nginx.conf` and `conf.d/download.conf`.
-OpenList uses `/root/openlist/data`, MySQL `/var/lib/mysql-dl`.
+OpenList uses `/root/openlist/data`; original MySQL `/var/lib/mysql-dl` is retained for recovery. Current MySQL uses `/data/mysql-restored-20261001`.
 Do not copy an old systemd or Docker deployment procedure to this host.
 
 ## Network and configuration contract
 
 The accompanying `deploy/download-nginx.conf.example` is a **review template**, not
 an automatically installable replacement for the host's complete nginx config.
-It assumes Cloudflare Tunnel is the only ingress, forwarding explicitly to
-`http://127.0.0.1:80`; direct public access to this listener is impossible because
+It assumes Cloudflare Tunnel is the only ingress, forwarding to
+`http://localhost:80` over IPv4/IPv6 loopback; direct public access to this listener is impossible because
 it binds loopback. Audit other nginx listeners before relying on that condition.
 Local processes are in the trusted computing boundary.
 
-Only the loopback cloudflared peer may supply `CF-Connecting-IP`. nginx resolves
+Only the IPv4/IPv6 loopback cloudflared peer may supply `CF-Connecting-IP`. nginx resolves
 that address and overwrites `X-Real-IP` for cardgw. Cardgw binds
 `127.0.0.1:8080` and trusts only `127.0.0.1/32` (and `::1/128` only if actually
 used). Never configure `0.0.0.0/0`, trust arbitrary `X-Forwarded-For`, or expose
