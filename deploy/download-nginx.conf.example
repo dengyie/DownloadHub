@@ -1,14 +1,16 @@
 # Include inside nginx's http {}. Requires http_realip_module.
 # REVIEW ONLY: do not replace unrelated host sites. CF Tunnel ingress MUST target
-# http://127.0.0.1:80; no other public listener may expose this server block.
+# http://localhost:80 (loopback IPv4/IPv6); no other public listener may expose this server block.
 # Only local cloudflared is trusted here; local processes are privileged peers.
 log_format download_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
                          '$status $body_bytes_sent $request_time';
 
 server {
     listen 127.0.0.1:80;
+    listen [::1]:80;
     server_name download.mangoqwq.com;
     set_real_ip_from 127.0.0.1;
+    set_real_ip_from ::1;
     real_ip_header CF-Connecting-IP;
     real_ip_recursive off;
     access_log /personal/pxed/nginx/logs/download-safe.log download_safe;
