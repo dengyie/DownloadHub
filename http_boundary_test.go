@@ -134,3 +134,25 @@ func TestEmbeddedApplicationAssetsAreNotCached(t *testing.T) {
 		}
 	}
 }
+
+func TestRedeemReferencesVersionedApplicationAssets(t *testing.T) {
+	h, _ := testHandler(t)
+	w := httptest.NewRecorder()
+	h.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/redeem", nil))
+	for _, asset := range []string{"redeem.js", "redeem.css"} {
+		prefix := "/assets/" + asset + "?v="
+		_, suffix, found := strings.Cut(w.Body.String(), prefix)
+		if !found {
+			t.Fatalf("%s has no content version; previously cached HTML may be served as this asset", asset)
+		}
+		version, _, _ := strings.Cut(suffix, "\"")
+		if len(version) < 16 {
+			t.Fatalf("invalid asset version: %q", version)
+		}
+		assetResponse := httptest.NewRecorder()
+		h.routes().ServeHTTP(assetResponse, httptest.NewRequest(http.MethodGet, prefix+version, nil))
+		if assetResponse.Code != http.StatusOK || assetResponse.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal("versioned asset unavailable")
+		}
+	}
+}
