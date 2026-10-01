@@ -2,7 +2,7 @@
 
 ## Status and evidence boundary
 
-The gateway is deployed at `ce8d92f`, schema 1. **Operational stability is not
+The gateway is deployed at `329679d`, schema 1. **Operational stability is not
 fully accepted:** MySQL has experienced repeated SIGKILLs under host memory pressure. CDN asset
 byte verification has passed; the dedicated storefront Apache pool is now bounded
 to 16 workers with 2–3 idle workers. Host configuration remains unchanged. See [the current release record](release-2026-10-01.md).
