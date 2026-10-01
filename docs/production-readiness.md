@@ -3,8 +3,9 @@
 ## Status and evidence boundary
 
 The gateway is deployed at `ce8d92f`, schema 1. **Operational stability is not
-fully accepted:** host-level OOM still kills MySQL and final CDN validation is
-incomplete because of transport timeouts. See [the current release record](release-2026-10-01.md).
+fully accepted:** MySQL has experienced repeated SIGKILLs under host memory pressure. CDN asset
+byte verification has passed; the dedicated storefront Apache pool is now bounded
+to 16 workers with 2–3 idle workers. Host configuration remains unchanged. See [the current release record](release-2026-10-01.md).
 The inventory table below is the historical pre-release baseline, not the current
 status of every gate. Dedicated disposable acceptance cards were created/revoked;
 no pre-existing customer card was consumed. MySQL was recovered to a clean datadir,
