@@ -83,11 +83,11 @@ func runServer(cfg Config) error {
 				return
 			case <-tick.C:
 				maint, cancel := context.WithTimeout(ctx, 3*time.Second)
+				started := time.Now()
 				err := h.service.store.cleanup(maint, time.Now(), time.Duration(cfg.AuditRetentionDays)*24*time.Hour)
+				// Capture the operation context before cancel marks a successful budget canceled.
+				logMaintenanceFailure(maint, slog.Default(), err, time.Since(started))
 				cancel()
-				if err != nil && !errors.Is(err, context.Canceled) {
-					slog.Error("maintenance failed", "error_type", "storage")
-				}
 			}
 		}
 	}()
