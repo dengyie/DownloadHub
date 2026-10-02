@@ -7,6 +7,9 @@ config.yaml
 *.db-wal
 *.db-shm
 *.db-journal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 coverage.out
 
 __pycache__/
