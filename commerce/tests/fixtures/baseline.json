@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/lizhipay/acg-faka",
+  "commit": "a4cf9eb4dd9a41ca663689fde0f52bfa7478e716",
+  "archive_url": "https://codeload.github.com/lizhipay/acg-faka/tar.gz/a4cf9eb4dd9a41ca663689fde0f52bfa7478e716",
+  "archive_sha256": "39fca9f7a8918f694764c125bf0a06432fe9cd9d6a55a2ca04a926507471be6b",
+  "composer_json_sha256": "81ba19d543283fad6b8e1539cc28e0ca8360cd735fcd0203b526665c50c27910",
+  "composer_lock_sha256": "17665e4989e037b4aa59bc26db9e9f02e02271076a50d125210b2bf3c989b925",
+  "schema_sha256": "768a6cc7d42e4607d4c039d8ad0dc1f5619d99d978024d200b9fa8d34fbe23a3",
+  "schema_tables": 29,
+  "source_verification": "All 2026-10-02 captured PHP sources and Composer files match this upstream commit. The installer SQL differs and is never loaded. schema.sql is DDL only from the completed SQLite migration; it contains no rows, SQLite sequence values, runtime configuration, or credentials."
+}

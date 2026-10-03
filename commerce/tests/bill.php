@@ -1,21 +1,8 @@
 <?php
 declare(strict_types=1);
 
-// Runs solely against a disposable SQLite file; production configuration is never loaded.
-require getenv('COMMERCE_VENDOR_AUTOLOAD') ?: '/var/www/html/vendor/autoload.php';
-$overlay = dirname(__DIR__) . '/overlay';
-spl_autoload_register(static function (string $class) use ($overlay): void {
-    $prefixes = ['Kernel\\' => 'kernel/', 'App\\' => 'app/'];
-    foreach ($prefixes as $prefix => $directory) {
-        if (str_starts_with($class, $prefix)) {
-            $file = $overlay . '/' . $directory . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
-            if (is_file($file)) {
-                require $file;
-            }
-            return;
-        }
-    }
-}, true, true);
+// Runs solely against disposable fixtures; production configuration is never loaded.
+require __DIR__ . '/bootstrap.php';
 
 use App\Model\Bill;
 use App\Model\User;

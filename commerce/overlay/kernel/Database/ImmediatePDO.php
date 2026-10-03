@@ -47,6 +47,37 @@ final class ImmediatePDO extends PDO
         return true;
     }
 
+    /**
+     * Refresh the engine state after a failed statement. PDO 8.2 only remembers
+     * calls to beginTransaction(), not a raw BEGIN or SQLite's automatic rollback.
+     * BEGIN without a write changes no data: an existing transaction rejects it;
+     * otherwise the empty probe is immediately rolled back. Never run this probe
+     * on the successful query path or infer state from a limited error-code list.
+     */
+    public function refreshTransactionState(): bool
+    {
+        if (!$this->active) {
+            return false;
+        }
+        try {
+            parent::exec('BEGIN');
+        } catch (PDOException $failure) {
+            if ((int)($failure->errorInfo[1] ?? 0) === 1
+                && str_contains($failure->getMessage(), 'cannot start a transaction within a transaction')) {
+                return true;
+            }
+            // An ambiguous probe failure must be handled by discarding the
+            // connection, never by assuming the original transaction survived.
+            throw $failure;
+        }
+        try {
+            parent::exec('ROLLBACK');
+        } finally {
+            $this->active = false;
+        }
+        return false;
+    }
+
     public function commit(): bool
     {
         if (!$this->active) {

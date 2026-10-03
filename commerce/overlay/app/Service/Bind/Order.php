@@ -19,7 +19,6 @@ use App\Model\Pay;
 use App\Model\User;
 use App\Model\UserCommodity;
 use App\Model\UserGroup;
-use App\Service\Email;
 use App\Service\Shared;
 use App\Util\Client;
 use App\Util\Date;
@@ -70,8 +69,6 @@ class Order implements \App\Service\Order
     #[Inject]
     private Shared $shared;
 
-    #[Inject]
-    private Email $email;
 
 
     /**
@@ -1126,12 +1123,19 @@ class Order implements \App\Service\Order
      * @return string
      * @throws JSONException
      */
-    public function orderSuccess(\App\Model\Order $order): string
+    public function orderSuccess(\App\Model\Order $order, bool $allowPendingStock = false): string
     {
-        /**
-         * @var Commodity $commodity
-         */
+        if (DB::connection()->transactionLevel() < 1) {
+            throw new \LogicException('Order settlement requires a transaction');
+        }
+        $order->refresh();
+        if ((int)$order->status !== 0) {
+            throw new JSONException('order status error');
+        }
         $commodity = $order->commodity;
+        if (!$commodity) {
+            throw new JSONException('订单对应商品不存在');
+        }
         $order->pay_time = Date::current();
         $order->status = 1;
         $shared = $commodity->shared; //获取商品的共享平台
@@ -1144,8 +1148,12 @@ class Order implements \App\Service\Order
             //自动发货
             if ($commodity->delivery_way == 0) {
                 //拉取本地的卡密发货
-                $order->secret = $this->pullCardForLocal($order, $commodity);
-                $order->delivery_status = 1;
+                $secret = $this->pullCardForLocal($order, $commodity);
+                if ($secret === null && !$allowPendingStock) {
+                    throw new JSONException('库存不足，请补货后重试');
+                }
+                $order->secret = $secret ?? '';
+                $order->delivery_status = $secret === null ? 0 : 1;
             } else {
                 //手动发货
                 $order->secret = ($commodity->delivery_message != null && $commodity->delivery_message != "") ? $commodity->delivery_message : '正在发货中，请耐心等待，如有疑问，请联系客服。';
@@ -1174,12 +1182,7 @@ class Order implements \App\Service\Order
 
         $order->save();
 
-        if ($commodity->contact_type == 2 && $commodity->send_email == 1 && $order->owner == 0) {
-            try {
-                $this->email->send($order->contact, "【发货提醒】您购买的卡密发货啦", "您购买的卡密如下：" . $order->secret);
-            } catch (\Exception|\Error $e) {
-            }
-        }
+        OrderNotification::enqueue($order, $commodity);
 
         hook(Hook::USER_API_ORDER_PAY_AFTER, $commodity, $order, $order->pay);
 
@@ -1193,29 +1196,17 @@ class Order implements \App\Service\Order
      * @param Commodity $commodity
      * @return string
      */
-    private function pullCardForLocal(\App\Model\Order $order, Commodity $commodity): string
+    private function pullCardForLocal(\App\Model\Order $order, Commodity $commodity): ?string
     {
-        $secret = "很抱歉，有人在你付款之前抢走了商品，请联系客服。";
-
-        /**
-         * @var Card $draft
-         */
-        $draft = $order->card;
-
-        //指定预选卡密
-        if ($draft) {
-            if ($draft->status == 0) {
-                $secret = $draft->secret;
-                $draft->purchase_time = $order->pay_time;
-                $draft->order_id = $order->id;
-                $draft->status = 1;
-                $draft->save();
-            }
-            return $secret;
+        if ((int)$order->card_num < 1 || ((int)$order->card_id > 0 && (int)$order->card_num !== 1)) {
+            throw new JSONException('发卡数量不正确');
         }
-
-        //取出和订单相同数量的卡密
+        // A selected card must still belong to this product and match its variant.
+        // Never fall back to an arbitrary card if the selected one was deleted/sold.
         $cards = Card::query()->where("commodity_id", $order->commodity_id)->where("status", 0);
+        if ((int)$order->card_id > 0) {
+            $cards->where('id', $order->card_id);
+        }
         if ((int)$commodity->delivery_auto_mode === 1) {
             $cards->inRandomOrder();
         } else {
@@ -1233,7 +1224,7 @@ class Order implements \App\Service\Order
             }
         }
 
-        $cards = $cards->limit($order->card_num)->get();
+        $cards = $cards->limit($order->card_num)->lockForUpdate()->get();
 
         if (count($cards) == $order->card_num) {
             $ids = [];
@@ -1247,12 +1238,47 @@ class Order implements \App\Service\Order
             if ($rows !== count($ids)) {
                 throw new JSONException('库存状态已变更，请重试');
             }
-            $secret = trim($cardc, PHP_EOL);
+            return trim($cardc, PHP_EOL);
         }
 
-        return $secret;
+        return null;
     }
 
+
+    /** Fulfillment only: a retry must never re-run payment accounting or hooks. */
+    public function retryDelivery(int $orderId, ?int $replacementCardId = null): bool
+    {
+        return DB::transaction(function () use ($orderId, $replacementCardId): bool {
+            $order = \App\Model\Order::query()->lockForUpdate()->find($orderId);
+            if (!$order || (int)$order->status !== 1) {
+                throw new JSONException('仅已支付订单可以补发');
+            }
+            if ((int)$order->delivery_status === 1) {
+                return true;
+            }
+            $commodity = $order->commodity;
+            if (!$commodity || $commodity->shared_id || (int)$commodity->delivery_way !== 0) {
+                throw new JSONException('仅本地自动发货商品可以重试库存发货');
+            }
+            if ($replacementCardId !== null) {
+                if ($replacementCardId < 1 || (int)$order->card_id < 1 || (int)$order->card_num !== 1) {
+                    throw new JSONException('仅预选卡订单可以指定替代卡');
+                }
+                $order->card_id = $replacementCardId;
+            }
+            $secret = $this->pullCardForLocal($order, $commodity);
+            if ($secret === null) {
+                // Fair scheduling: exhausted old orders cannot starve newer pending orders.
+                \App\Model\Order::query()->where('id', $orderId)->update(['fulfillment_retry_at' => time() + 60]);
+                return false;
+            }
+            $order->secret = $secret;
+            $order->delivery_status = 1;
+            $order->save();
+            OrderNotification::enqueue($order, $commodity);
+            return true;
+        });
+    }
 
     /**
      * @param string $handle
@@ -1308,7 +1334,7 @@ class Order implements \App\Service\Order
                 $owner->recharge = bcadd((string)$owner->getRawOriginal('recharge'), (string)$order->getRawOriginal('amount'), 2);
                 $owner->save();
             }
-            $this->orderSuccess($order);
+            $this->orderSuccess($order, allowPendingStock: true);
         });
         return $callback['success'];
     }

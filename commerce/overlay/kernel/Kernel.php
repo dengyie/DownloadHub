@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 use App\Util\AdminEntrance;
-use Illuminate\Database\Capsule\Manager;
 use Kernel\Annotation\Collector;
 use Kernel\Consts\Base;
 use Kernel\Container\Di;
