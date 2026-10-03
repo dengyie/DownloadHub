@@ -1,5 +1,6 @@
 """A source drift or unsafe destination must stop a release before any overwrite."""
 import hashlib
+import json
 import os
 import importlib.util
 from pathlib import Path
@@ -72,6 +73,27 @@ class ServiceRecoveryTest(unittest.TestCase):
         with patch.object(release, 'is_running', return_value=True), patch.object(release, 'run') as run:
             release.ensure_running('commerce-maintenance')
             run.assert_not_called()
+
+
+class BackupInventoryTest(unittest.TestCase):
+    def test_worker_and_release_evidence_are_preserved_without_losing_prior_settings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / 'backup.json'
+            evidence = root / 'release'
+            evidence.mkdir()
+            worker = root / 'worker.sh'
+            worker.write_text('fixture')
+            original = {'files': ['/existing'], 'sqlite': {'shop': '/db/shop.sqlite'}, 'interval_seconds': 21600}
+            config.write_text(json.dumps(original))
+            with patch.object(release.os, 'chown'):
+                for _ in range(2):
+                    release.register_backup_files(config, [worker, evidence], evidence)
+            actual = json.loads(config.read_text())
+            self.assertEqual(actual['files'], ['/existing', str(worker), str(evidence)])
+            self.assertEqual(actual['sqlite'], original['sqlite'])
+            self.assertEqual(actual['interval_seconds'], 21600)
+            self.assertEqual(json.loads((evidence / 'download-backup.before.json').read_text()), original)
 
 
 if __name__ == '__main__':

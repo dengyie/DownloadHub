@@ -106,6 +106,24 @@ def check_database(db):
             raise RuntimeError('SQLite foreign key check failed')
 
 
+def register_backup_files(config_path, files, evidence):
+    configuration = json.loads(config_path.read_text())
+    existing = configuration.get('files')
+    if not isinstance(existing, list):
+        raise RuntimeError('Backup file inventory must be a list')
+    for path in files:
+        if not Path(path).exists():
+            raise RuntimeError('Backup source is absent: ' + str(path))
+        if str(path) not in existing:
+            existing.append(str(path))
+    backup = evidence / 'download-backup.before.json'
+    if not backup.exists():
+        shutil.copy2(config_path, backup)
+    candidate = evidence / 'download-backup.updated.json'
+    candidate.write_text(json.dumps(configuration, indent=2) + '\n')
+    atomic_copy(candidate, config_path, owner=(0, 0))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--release-dir', required=True)
@@ -193,6 +211,7 @@ def main():
         ensure_running('commerce-maintenance')
         if 'commerce-maintenance' in stopped:
             stopped.remove('commerce-maintenance')
+        register_backup_files(Path('/personal/pxed/download-backup.json'), [worker, worker_conf, release], release)
         print('PASS source release and additive schema; database never restored', flush=True)
     except BaseException:
         if mutated and not accepting_writes:

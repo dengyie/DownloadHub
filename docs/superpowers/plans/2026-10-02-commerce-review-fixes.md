@@ -30,6 +30,8 @@
 
 ## 4. Release
 
-- [ ] Review final diff and run complete checks/build; retain confirmed dead MySQL-logrotate removals from the review.
-- [ ] Add recurring source-only deployment with old/new hashes, fresh SQLite backup, preflight PHP syntax, stopped-storefront schema update and restart. Do not run `commerce/deploy.py` again.
-- [ ] Deploy verified source, inspect HTTP/service/log/backup evidence, record any limitations and update the canonical Obsidian entry/plan/router/MOC.
+- [x] Review final diff and run complete checks/build; retain confirmed dead MySQL-logrotate removals from the review.
+- [x] Add recurring source-only deployment with old/new hashes, fresh SQLite backup, preflight PHP syntax, stopped-storefront schema update and restart. Do not run `commerce/deploy.py` again.
+- [x] Deploy verified source, inspect HTTP/service/log/backup evidence, record any limitations and update the canonical Obsidian entry/plan/router/MOC.
+
+Verified and deployed 2026-10-03; exact results and operational limits: `docs/release-2026-10-03-commerce-review.md`.
