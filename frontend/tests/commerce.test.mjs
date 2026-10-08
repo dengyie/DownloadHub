@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formFields} from '../src/api.js';
+import {formFields, request, APIError} from '../src/api.js';
 import {
   productIdFromURL, productOptions, initialSelection, quantityBounds, quantityError,
   contactField, isCustomer, normalizeWidgets, widgetErrors, buildQuoteFields,
   quoteKey, makeQuote, buildTradeFields, availablePayments, purchaseRestriction,
-  checkoutReadiness, orderPresentation, initialOrderKeyword, orderQueryPath, pagination,
+  checkoutReadiness, tradeOutcome, tradeFailureNeedsLookup, orderPresentation, initialOrderKeyword, orderQueryPath, pagination,
 } from '../src/commerce-model.js';
+import {renderProduct} from '../src/pages/product.js';
+import {renderOrders} from '../src/pages/orders.js';
 
 const product = {
   id: 7, login: false, only_user: 0, delivery_way: 0, contact_type: 2,
@@ -37,6 +39,15 @@ test('initial selections retain original race and SKU keys and minimum quantity'
   assert.equal(productOptions(product).skus[0].options[1].value, '日本');
   assert.ok(productOptions({...product, config: {sku: {'地区': {}}}}).error);
   assert.ok(productOptions({...product, config: {sku: JSON.parse('{"__proto__":{"a":1}}')}}).error);
+});
+
+test('numeric PHP option maps can arrive as JSON arrays without losing their keys', () => {
+  const numeric = {...product, config: {category: [12, 18], sku: {'等级': [0, 5]}}};
+  assert.equal(productOptions(numeric).error, '');
+  const selected = initialSelection(numeric);
+  assert.equal(selected.race, '0');
+  assert.deepEqual(selected.sku, {'等级': '0'});
+  assert.equal(formFields(buildQuoteFields(numeric, selected)).get('sku[等级]'), '0');
 });
 
 test('quantity constraints do not round fractions, permit zero, or erase a minimum for card selection', () => {
@@ -171,6 +182,38 @@ test('purchase restrictions and in-flight/completed trade locks override otherwi
   assert.equal(purchaseRestriction({...timed, seckill_end_time: 'bad'}).code, 'sale-invalid');
 });
 
+test('trade results distinguish a cashier from free/balance completion and withhold unpaid secrets', () => {
+  const response = {tradeNo: '202610090001234567', secret: 'private', url: '/user/pay/order.202610090001234567.1', amount: '12.00'};
+  const payment = payments[0];
+  assert.equal(tradeOutcome(response, payment).paid, false);
+  assert.equal(tradeOutcome(response, payment).secret, '');
+  assert.equal(tradeOutcome({...response, url: ''}, payment).paid, true);
+  assert.equal(tradeOutcome({...response, amount: '0.00'}, payment).paid, true);
+  assert.equal(tradeOutcome(response, {id: 1, handle: '#system'}).secret, 'private');
+  assert.equal(tradeOutcome({...response, amount: undefined}, payment).amount, null);
+  assert.throws(() => tradeOutcome({tradeNo: response.tradeNo, secret: 'private'}, payment));
+  assert.throws(() => tradeOutcome({...response, tradeNo: ''}, payment));
+  assert.throws(() => tradeOutcome({...response, url: {}}, payment));
+});
+
+test('a malformed successful HTTP trade response requires lookup before another order, without replaying POST', async () => {
+  let calls = 0;
+  await assert.rejects(request('/user/api/order/trade', {
+    method: 'POST', fields: buildTradeFields(product, selection, values),
+    fetcher: async () => {
+      calls++;
+      return {ok: true, status: 200, json: async () => { throw new SyntaxError('truncated JSON'); }};
+    },
+  }), error => {
+    assert.equal(tradeFailureNeedsLookup(error), true);
+    return true;
+  });
+  assert.equal(calls, 1);
+  assert.equal(tradeFailureNeedsLookup(new APIError('网络连接失败')), true);
+  assert.equal(tradeFailureNeedsLookup(new APIError('服务异常', {status: 502})), true);
+  assert.equal(tradeFailureNeedsLookup(new APIError('验证码错误', {status: 200})), false);
+});
+
 test('unpaid orders cannot reveal secret, widgets, or rich leave messages, even in a contradictory payload', () => {
   const view = orderPresentation({status: 0, delivery_status: 1, secret: 'MUST NOT SHOW', commodity: {leave_message: '<p>private</p>'}}, {secret: 'ALSO PRIVATE', widget: {account: 'private'}});
   assert.equal(view.paid, false);
@@ -196,8 +239,20 @@ test('password protection follows the actual order and only unlocks after a succ
   assert.equal(orderPresentation(order).locked, true);
   assert.equal(orderPresentation(order).secret, '');
   assert.equal(orderPresentation(order).leaveMessage, '');
-  assert.equal(orderPresentation(order, {secret: 'unlocked', widget: {account: {cn: '账号', value: '<text>'}}}).secret, 'unlocked');
+  const unlocked = orderPresentation(order, {secret: 'unlocked', widget: {account: {cn: '账号', value: '<text>'}}});
+  assert.equal(unlocked.secret, 'unlocked');
+  assert.equal(unlocked.protected, true, 'refreshing a protected order must ask for its password again');
+  assert.equal(unlocked.locked, false);
   assert.equal(orderPresentation({...order, password: false}).locked, false);
+});
+
+test('legacy null and empty order passwords do not inherit a product-level password requirement', () => {
+  for (const password of [null, '', false, 0]) {
+    const view = orderPresentation({status: 1, delivery_status: 1, password, secret: 'delivered', commodity: {password_status: 1}});
+    assert.equal(view.locked, false);
+    assert.equal(view.secret, 'delivered');
+  }
+  assert.equal(orderPresentation({status: 1, delivery_status: 1, commodity: {password_status: 1}}).locked, true);
 });
 
 test('order URL helpers accept only the upstream 18-digit order number, never contacts or passwords', () => {
@@ -219,4 +274,15 @@ test('pagination obeys totals and provides a reachable previous page after total
   assert.equal(pagination(8, 4, 10).previous, 1);
   assert.throws(() => pagination('bad', 1, 10));
   assert.throws(() => pagination(-1, 1, 10));
+});
+
+test('already-aborted page mounts perform no DOM or API work', async () => {
+  const controller = new AbortController(); controller.abort();
+  const root = new Proxy({}, {get() { throw new Error('stale DOM access'); }});
+  const context = {url: new URL('https://shop.test/item/7'), signal: controller.signal, navigate() { throw new Error('stale navigation'); }, sitePromise: Promise.resolve(null)};
+  for (const render of [renderProduct, renderOrders]) {
+    const cleanup = await render(root, context);
+    assert.equal(typeof cleanup, 'function');
+    cleanup();
+  }
 });

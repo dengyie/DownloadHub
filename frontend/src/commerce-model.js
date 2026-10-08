@@ -5,10 +5,11 @@ const blockedKeys = new Set(['__proto__', 'constructor', 'prototype']);
 const reservedFields = new Set([
   ...blockedKeys, 'item_id', 'num', 'race', 'sku', 'card_id', 'coupon', 'pay_id',
   'contact', 'password', 'captcha', 'device', 'request_no',
-  'submit', 'reset', 'elements', 'checkValidity', 'reportValidity', 'requestSubmit',
+  'submit', 'reset', 'elements', 'checkValidity', 'reportValidity', 'requestSubmit', 'addEventListener',
   'action', 'method', 'name', 'id', 'attributes', 'children', 'replaceChildren',
 ]);
-const isMap = value => value && typeof value === 'object' && (!Array.isArray(value) || value.length === 0);
+// PHP associative arrays with consecutive numeric keys serialize as JSON lists.
+const isMap = value => value !== null && typeof value === 'object';
 const number = value => (typeof value === 'number' || typeof value === 'string') && text(value).trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : null;
 const positiveID = value => Number.isSafeInteger(number(value)) && Number(value) > 0;
 const orderNumber = value => typeof value === 'string' && /^\d{18}$/.test(value);
@@ -227,10 +228,26 @@ export function orderQueryPath(tradeNo) {
   return orderNumber(tradeNo) ? `/user/index/query?tradeNo=${tradeNo}` : '/user/index/query';
 }
 
+export function tradeOutcome(data, payment) {
+  if (!data || typeof data.tradeNo !== 'string' || !data.tradeNo.trim() || !Object.hasOwn(data, 'url') || (data.url != null && typeof data.url !== 'string')) throw new Error('未能识别下单结果，请先查询订单确认。');
+  const amount = number(data.amount);
+  const paid = data.url == null || data.url === '' || payment?.handle === '#system' || Number(payment?.id) === 1 || amount === 0;
+  return {tradeNo: data.tradeNo, paid, amount, secret: paid && typeof data.secret === 'string' ? data.secret : '', paymentURL: paid ? '' : data.url};
+}
+
+export function tradeFailureNeedsLookup(error) {
+  // The shared request helper also uses HTTP 200 for invalid JSON/envelopes;
+  // those generic errors do not confirm that an order was rejected.
+  return !error?.status || error.status >= 500 || !error.message || [
+    '服务暂时没有返回有效数据，请稍后重试',
+    '操作未完成，请稍后重试',
+  ].includes(error.message);
+}
+
 export function orderPresentation(order, details = null) {
   const paid = isEnabled(order.status), delivered = paid && isEnabled(order.delivery_status);
   const protection = order.password;
-  const protectedOrder = protection == null ? isEnabled(order.commodity?.password_status) : ![false, 0, '0', ''].includes(protection);
+  const protectedOrder = Object.hasOwn(order, 'password') ? ![false, 0, '0', '', null, undefined].includes(protection) : isEnabled(order.commodity?.password_status);
   const locked = paid && protectedOrder && details === null;
   const rawSecret = details ? details.secret : order.secret;
   const secret = paid && !locked ? text(rawSecret) : '';
@@ -241,13 +258,13 @@ export function orderPresentation(order, details = null) {
       kind = 'delivered'; label = '已付款 · 已发货'; message = '请妥善保存发货内容。';
     } else if (Number(knownWay) === 1 || (!locked && secret.trim())) {
       kind = 'manual'; label = '已付款 · 商家处理中'; message = '正在等待商家完成发货，无需再次付款。';
-    } else if (knownWay != null && Number(knownWay) === 0 || !locked && rawSecret != null && !secret.trim()) {
+    } else if ((knownWay != null && Number(knownWay) === 0) || (!locked && rawSecret != null && !secret.trim())) {
       kind = 'stock'; label = '已付款 · 等待补货'; message = '付款已确认，正在等待库存补充与发货，无需再次付款。';
     } else {
       kind = 'pending'; label = '已付款 · 待发货'; message = '正在等待补货或商家发货，无需再次付款。';
     }
   }
-  return {paid, delivered, locked, kind, label, message, secret, leaveMessage: paid && !locked ? text(details?.leave_message ?? order.commodity?.leave_message) : '', widget: paid && !locked ? details?.widget ?? null : null};
+  return {paid, delivered, protected: protectedOrder, locked, kind, label, message, secret, leaveMessage: paid && !locked ? text(details?.leave_message ?? order.commodity?.leave_message) : '', widget: paid && !locked ? details?.widget ?? null : null};
 }
 
 export function pagination(total, page = 1, limit = 10) {
