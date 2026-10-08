@@ -15,6 +15,10 @@ test('builds are deterministic, self-contained and exclude fixtures/backend sour
   const manifest = JSON.parse(await readFile(path.join(first.output, 'build.json'), 'utf8'));
   assert.equal(manifest.version, first.version);
   assert.equal(manifest.assets.length, first.files);
+  assert.deepEqual(
+    await readFile(path.join(first.output, 'ui/captcha.js')),
+    await readFile(path.join(first.output, 'ui', first.version, 'captcha.js'))
+  );
   assert.deepEqual((await readdir(first.output)).sort(), ['brand', 'build.json', 'index.html', 'ui']);
   const html = await readFile(path.join(first.output, 'index.html'), 'utf8');
   assert.ok(html.includes(`/ui/${first.version}/app.js`));

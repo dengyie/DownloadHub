@@ -44,7 +44,14 @@ const product = {
 };
 const selection = {...initialSelection(product), coupon: 'SAVE', card_id: 0};
 const payments = [{id: 2, name: '在线支付', handle: 'gateway'}];
-const values = {pay_id: 2, contact: 'buyer@example.test', password: 'secret-123', captcha: '', widget: {}};
+const values = {
+  pay_id: 2,
+  contact: 'buyer@example.test',
+  password: 'secret-123',
+  captcha_id: '',
+  captcha_code: '',
+  widget: {},
+};
 const quoted = (changes = {}, stock = {stock: 5, stock_state: 1}) =>
   makeQuote(product, {...selection, ...changes}, {price: '12.00'}, stock);
 const readiness = (overrides = {}) =>
@@ -166,6 +173,8 @@ test('unknown, plugin, malformed, duplicate and colliding widgets explicitly blo
     [{type: 'custom', name: 'human_check', cn: '人机验证'}],
     [{type: 'file', name: 'upload'}],
     [{type: 'text', name: 'pay_id'}],
+    [{type: 'text', name: 'captcha_id'}],
+    [{type: 'text', name: 'captcha_code'}],
     [{type: 'text', name: '__proto__'}],
     [{type: 'text', name: 'contact.extra'}],
     [
@@ -196,12 +205,17 @@ test('quote and trade fields use exact backend names and isolate sensitive value
     ...values,
     contact: ' buyer@example.test ',
     password: ' exact password ',
+    captcha_id: 'a'.repeat(22),
+    captcha_code: ' ab23 ',
   });
   assert.equal(fields.contact, 'buyer@example.test');
   assert.equal(fields.password, ' exact password ');
   assert.equal(fields.pay_id, 2);
+  assert.equal(fields.captcha_id, 'a'.repeat(22));
+  assert.equal(fields.captcha_code, 'ab23');
+  assert.equal(Object.hasOwn(fields, 'captcha'), false);
   assert.equal(formFields(fields).get('sku[地区]'), '日本');
-  for (const name of ['contact', 'password', 'captcha', 'pay_id', 'widget'])
+  for (const name of ['contact', 'password', 'captcha_id', 'captcha_code', 'pay_id', 'widget'])
     assert.equal(Object.hasOwn(buildQuoteFields(product, chosen), name), false);
 });
 

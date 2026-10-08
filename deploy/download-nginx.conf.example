@@ -58,6 +58,13 @@ server {
 
     # Only known fingerprinted files are immutable. Missing assets remain 404,
     # never index.html. Keep previous releases until existing tabs have expired.
+    location = /ui/captcha.js {
+        try_files $uri =404;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+    }
     location /ui/ { return 404; }
     location ~ "^/ui/[a-f0-9]{24}/[A-Za-z0-9_/-]+\.(?:js|css)$" {
         try_files $uri =404;
@@ -83,7 +90,7 @@ server {
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
     }
     # Old links show a confirmation page. The browser validates the resource and
     # scrubs card/key/token query values; GET/HEAD never issue a grant or debit.
@@ -94,7 +101,7 @@ server {
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
     }
     location ^~ /api/ {
         client_max_body_size 16k;

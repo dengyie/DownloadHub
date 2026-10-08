@@ -52,7 +52,7 @@ test('checkout preserves SKU fields, submits once, and retrieves password-protec
     coupon: 'FREE',
     contact: 'preview@example.test',
     password: 'preview-only',
-    captcha: '4286',
+    captcha_code: '4286',
   });
   expect((await state(request)).tradeCount).toBe(1);
   await page.getByRole('link', {name: '查看订单', exact: true}).click();

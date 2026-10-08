@@ -1,4 +1,15 @@
 // Synthetic browser-test data. This file is outside src/ and never enters a build.
+import {randomBytes} from 'node:crypto';
+import {captchaPNG} from './captcha-fixture.mjs';
+
+const captchas = new Map();
+function checkCaptcha(form, action) {
+  const id = form.get('captcha_id');
+  const challenge = captchas.get(id);
+  if (!challenge || challenge.action !== action) return false;
+  captchas.delete(id);
+  return challenge.expires > Date.now() && form.get('captcha_code')?.trim() === '4286';
+}
 let loggedIn = false;
 let grantCount = 0;
 let tradeCount = 0;
@@ -89,15 +100,16 @@ export async function fixtureAPI(request, response, url) {
     grantCount = 0;
     tradeCount = 0;
     credentials.clear();
+    captchas.clear();
     orders.length = 0;
     reply(response, {});
     return true;
   }
   if (route === '/user/captcha/image') {
-    response.writeHead(200, {'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store'});
-    response.end(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="44"><rect width="120" height="44" rx="6" fill="#f2eee5"/><text x="20" y="30" font-size="26" font-family="monospace" fill="#564f41" letter-spacing="5">4286</text></svg>'
-    );
+    const id = randomBytes(16).toString('base64url');
+    captchas.set(id, {action: url.searchParams.get('action'), expires: Date.now() + 300000});
+    response.writeHead(200, {'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'X-Captcha-Id': id});
+    response.end(captchaPNG);
     return true;
   }
   if (route.startsWith('/p/fixture/')) {
@@ -214,7 +226,7 @@ export async function fixtureAPI(request, response, url) {
   else if (route === '/user/api/index/card')
     reply(response, {data: {list: [{id: 1, draft: '预览账号 A', draft_premium: 1}], total: 1}});
   else if (route === '/user/api/order/trade') {
-    if (form.get('captcha') !== '4286' && form.get('item_id') === '101') {
+    if (form.get('item_id') === '101' && !checkCaptcha(form, 'trade')) {
       reply(response, {msg: '验证码错误'}, 400);
       return true;
     }
@@ -268,12 +280,14 @@ export async function fixtureAPI(request, response, url) {
       });
   } else if (route.startsWith('/user/api/authentication/')) {
     if (route.endsWith('/login') || route.endsWith('/register')) {
-      if (form.get('captcha') !== '4286') {
+      if (!checkCaptcha(form, route.split('/').at(-1))) {
         reply(response, {msg: '验证码错误'}, 400);
         return true;
       }
       loggedIn = true;
       reply(response, {msg: '操作成功'});
+    } else if (!route.endsWith('/password') && !checkCaptcha(form, route.split('/').at(-1))) {
+      reply(response, {msg: '验证码错误'}, 400);
     } else reply(response, {msg: route.endsWith('/password') ? '密码已重置' : '验证码已发送'});
   } else reply(response, {msg: '测试预览中未配置此接口'}, 404);
   return true;

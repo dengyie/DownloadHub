@@ -22,6 +22,9 @@ class Upstream(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Cache-Control', 'public, max-age=600')
+        self.send_header('X-Fixture-Client-IP', self.headers.get('X-Real-IP', ''))
+        self.send_header('X-Fixture-Forwarded-For', self.headers.get('X-Forwarded-For', ''))
+        self.send_header('X-Fixture-CF-IP', self.headers.get('CF-Connecting-IP', ''))
         if self.server.kind == 'commerce':
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'")
         self.send_header('Content-Length', str(len(body)))
@@ -48,6 +51,7 @@ class NginxFrontendTest(unittest.TestCase):
         version.mkdir(parents=True)
         (version / 'app.js').write_text('export const fixture = true;', encoding='utf-8')
         (version / 'styles.css').write_text('body {color: black}', encoding='utf-8')
+        (cls.assets / 'ui' / 'captcha.js').write_text('export const captcha = true;', encoding='utf-8')
         (cls.assets / 'index.html').write_bytes(cls.shell)
         (cls.assets / 'brand').mkdir()
         (cls.assets / 'brand' / 'logo.png').write_bytes(b'fixture-image')
@@ -106,10 +110,10 @@ class NginxFrontendTest(unittest.TestCase):
         else:
             raise AssertionError('Isolated nginx did not become ready')
 
-    def request(self, path, method='GET', body=None):
+    def request(self, path, method='GET', body=None, headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
         try:
-            connection.request(method, path, body, {'Host': 'download.mangoqwq.com'})
+            connection.request(method, path, body, {'Host': 'download.mangoqwq.com', **(headers or {})})
             response = connection.getresponse()
             return response.status, dict((k.lower(), v) for k, v in response.getheaders()), response.read()
         finally:
@@ -126,7 +130,15 @@ class NginxFrontendTest(unittest.TestCase):
                 self.assertEqual(headers.get('cache-control'), 'no-store')
                 self.assertIn('text/html', headers.get('content-type', ''))
                 self.assertIn("script-src 'self';", headers.get('content-security-policy', ''))
+                self.assertIn("img-src 'self' https: blob:;", headers.get('content-security-policy', ''))
                 self.assertEqual(self.request(path, 'HEAD')[2], b'')
+
+    def test_shared_captcha_module_is_no_store_not_a_spa_fallback(self):
+        status, headers, body = self.request('/ui/captcha.js')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get('cache-control'), 'no-store')
+        self.assertIn('javascript', headers.get('content-type', ''))
+        self.assertEqual(body, b'export const captcha = true;')
 
     def test_post_to_a_document_never_replays_or_returns_the_shell(self):
         self.assertEqual(self.request('/redeem', 'POST', 'card=fixture')[0], 405)
@@ -168,6 +180,18 @@ class NginxFrontendTest(unittest.TestCase):
         for path in ['/user/api/order/trade', '/user/pay/fixture']:
             with self.subTest(path=path):
                 self.assertEqual(self.request(path, 'POST', b'x' * (64 * 1024 + 1))[0], 413)
+
+    def test_proxy_overwrites_client_headers_for_captcha_and_verification(self):
+        for client in ['192.0.2.21', '192.0.2.22']:
+            for path in ['/user/captcha/image?action=login', '/user/api/authentication/login']:
+                with self.subTest(client=client, path=path):
+                    status, headers, _ = self.request(path, headers={
+                        'CF-Connecting-IP': client, 'X-Real-IP': '203.0.113.9',
+                        'X-Forwarded-For': '203.0.113.8'})
+                    self.assertEqual(status, 200)
+                    self.assertEqual(headers['x-fixture-client-ip'], client)
+                    self.assertEqual(headers['x-fixture-forwarded-for'], client)
+                    self.assertEqual(headers['x-fixture-cf-ip'], '')
 
     def test_old_download_links_are_confirmation_only_and_queries_are_not_logged(self):
         marker = 'fixture-secret-not-for-logs'

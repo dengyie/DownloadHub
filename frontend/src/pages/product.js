@@ -1,4 +1,5 @@
 import {getJSON, postJSON, safeURL} from '../api.js';
+import {mountCaptcha} from '../captcha.js';
 import {
   el,
   icon,
@@ -155,7 +156,6 @@ export async function renderProduct(root, context) {
     };
     let selectedCard = null,
       payPending = false,
-      captchaVersion = 0,
       restrictionKey;
     let cardPage = 1,
       cardTotal = 0,
@@ -406,7 +406,7 @@ export async function renderProduct(root, context) {
       );
 
     const contact = contactField(product.contact_type);
-    let contactInput, passwordInput, couponInput, captchaInput, captchaImage;
+    let contactInput, passwordInput, couponInput, captchaInput, captchaChallenge;
     const customerFields = el('div', {className: 'form-grid'});
     if (!loggedIn && contact) {
       const field = inputField(contact.label, 'contact', {
@@ -546,33 +546,27 @@ export async function renderProduct(root, context) {
     for (const message of widgets.unsupported) controls.append(banner(message, 'error'));
 
     if (isEnabled(product.trade_captcha)) {
-      const field = inputField('图形验证码', 'captcha', {
+      const field = inputField('图形验证码', 'captcha_code', {
         id: 'product-captcha',
         type: 'text',
-        inputmode: 'numeric',
         autocomplete: 'off',
         required: true,
       });
       captchaInput = field.input;
-      captchaImage = el('img', {alt: '下单图形验证码', width: 120, height: 40});
-      field.field.append(
-        el('div', {className: 'row'}, [
-          captchaImage,
-          button(
-            '换一张验证码',
-            {
-              className: 'button button-quiet',
-              onclick: () => {
-                refreshCaptcha();
-                updateReadiness();
-              },
-            },
-            'refresh'
-          ),
-        ])
-      );
+      const image = el('img', {alt: '下单图形验证码', width: 150, height: 50});
+      const trigger = button('换一张验证码', {className: 'button button-quiet'}, 'refresh');
+      const status = el('p', {className: 'field-help', id: 'product-captcha-status'});
+      field.field.append(el('div', {className: 'row'}, [image, trigger]), status);
       controls.append(field.field);
-      refreshCaptcha();
+      captchaChallenge = mountCaptcha({
+        action: 'trade',
+        image,
+        input: captchaInput,
+        status,
+        trigger,
+        signal: lifetime.signal,
+        onChange: updateReadiness,
+      });
     }
     controls.append(
       el('section', {className: 'price-panel stack', 'aria-label': '价格与支付'}, [
@@ -607,7 +601,8 @@ export async function renderProduct(root, context) {
         pay_id: state.payId,
         contact: contactInput?.value ?? '',
         password: passwordInput?.value ?? '',
-        captcha: captchaInput?.value ?? '',
+        captcha_code: captchaInput?.value ?? '',
+        captcha_id: captchaChallenge?.id ?? '',
         widget: Object.fromEntries([...widgetInputs].map(([name, entry]) => [name, entry.read()])),
       };
     }
@@ -828,9 +823,7 @@ export async function renderProduct(root, context) {
       }
     }
     function refreshCaptcha() {
-      if (!captchaImage) return;
-      captchaImage.src = href(`/user/captcha/image?action=trade&_t=${Date.now()}&v=${++captchaVersion}`);
-      captchaInput.value = '';
+      void captchaChallenge?.refresh();
     }
     function scheduleSale() {
       clearTimeout(saleTimer);

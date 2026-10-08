@@ -74,6 +74,7 @@ before(async () => {
     response.writeHead(200, {
       'Content-Type': 'application/json',
       'Content-Security-Policy': "default-src 'none'",
+      'X-Captcha-Id': 'a'.repeat(22),
     });
     response.end(JSON.stringify({code: 200, path: request.url}));
   });
@@ -95,6 +96,12 @@ after(async () => {
 });
 
 test('read-only preview permits documented reads and refuses state-changing GETs', async () => {
+  const captcha = await request(readOnlyPort, '/user/captcha/image?action=login');
+  assert.equal(captcha.headers['x-captcha-id'], 'a'.repeat(22));
+  const module = await request(readOnlyPort, '/ui/captcha.js');
+  assert.equal(module.status, 200);
+  assert.equal(module.headers['cache-control'], 'no-store');
+  assert.match(module.body, /export function mountCaptcha/);
   for (const path of [
     '/user/api/storefront/bootstrap',
     '/user/api/index/commodity?categoryId=1',

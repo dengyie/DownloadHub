@@ -114,13 +114,13 @@ def main():
         app = Path(temporary) / "app"
         schema = prepare(app, baseline)
         environment = dict(os.environ, COMMERCE_TEST_APP=str(app), COMMERCE_SCHEMA_DB=str(schema))
-        for suite in ["sqlite", "bill", "migration", "orders", "card-deletion", "storefront"]:
+        for suite in ["sqlite", "bill", "migration", "orders", "card-deletion", "storefront", "captcha", "captcha-callers"]:
             command = [args.php, "-d", "error_reporting=24575", str(HERE / (suite + ".php"))]
             if suite == "migration":
                 command.append(str(schema))
             print("Running commerce " + suite, flush=True)
             subprocess.run(command, env=environment, check=True, timeout=120)
-    print("PASS all six commerce suites (isolated public fixture)", flush=True)
+    print("PASS all eight commerce suites (isolated public fixture)", flush=True)
 
 
 if __name__ == "__main__":

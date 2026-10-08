@@ -1552,8 +1552,8 @@ textarea::placeholder {
   width: 100px !important;
 }
 .captcha-row img {
-  width: 120px;
-  height: 44px;
+  width: 150px;
+  height: 50px;
   object-fit: contain;
   border-radius: 6px;
   cursor: pointer;
@@ -1565,11 +1565,18 @@ textarea::placeholder {
   background: transparent;
   flex: none;
   border-radius: 6px;
-  min-width: 120px;
-  min-height: 44px;
+  min-width: 150px;
+  min-height: 50px;
+  background: var(--surface-soft);
 }
 .captcha-refresh img {
-  max-width: 120px;
+  max-width: 150px;
+}
+.captcha-refresh[aria-busy='true']::after {
+  content: '加载中…';
+}
+.captcha-refresh:not([aria-busy='true']):has(img[hidden])::after {
+  content: '重新加载';
 }
 .payment-options {
   display: flex;
@@ -2412,8 +2419,8 @@ textarea::placeholder {
   }
   .captcha-row img,
   .captcha-refresh {
-    width: 110px;
-    min-width: 110px;
+    width: 150px;
+    min-width: 150px;
   }
   .info-grid {
     gap: 12px;

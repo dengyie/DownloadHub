@@ -13,7 +13,8 @@ const reservedFields = new Set([
   'pay_id',
   'contact',
   'password',
-  'captcha',
+  'captcha_id',
+  'captcha_code',
   'device',
   'request_no',
   'submit',
@@ -259,7 +260,8 @@ export function buildTradeFields(product, selection, values, widgets = normalize
     pay_id: Number(values.pay_id),
     contact: text(values.contact).trim(),
     password: text(values.password),
-    captcha: text(values.captcha).trim(),
+    captcha_id: text(values.captcha_id),
+    captcha_code: text(values.captcha_code).trim(),
   };
   for (const field of widgets.fields) {
     const value = values.widget?.[field.name];
@@ -385,8 +387,12 @@ export function checkoutReadiness({
     [...text(values.password)].length < 6
   )
     return blocked('password', '查询密码至少需要 6 个字符。');
-  if (isEnabled(product.trade_captcha) && !text(values.captcha).trim())
-    return blocked('captcha', '请填写图形验证码。');
+  if (
+    isEnabled(product.trade_captcha) &&
+    (!/^[A-Za-z0-9_-]{22}$/.test(text(values.captcha_id)) ||
+      !/^[A-Za-z2-9]{4}$/.test(text(values.captcha_code).trim()))
+  )
+    return blocked('captcha', '请加载并填写有效的图形验证码。');
   const widgetError = widgetErrors(widgets, values.widget)[0];
   if (widgetError) return blocked('widget', widgetError.message);
   return {ready: true, code: '', message: '价格与库存已确认，提交时由商家再次校验。'};

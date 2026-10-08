@@ -67,6 +67,8 @@ export async function build(output = path.join(root, 'dist')) {
     const target = await targetFile(path.join('ui', version, file.name));
     await writeFile(target, file.data);
   }
+  // PHP-owned forms import one stable entry. It is the exact SPA module, not a second implementation.
+  await copyFile(path.join(source, 'captcha.js'), await targetFile(path.join('ui', 'captcha.js')));
   for (const name of ['logo.png', 'favicon.ico', 'apple-touch-icon.png'])
     await copyFile(path.join(root, '..', 'brand', name), await targetFile(path.join('brand', name)));
   await writeFile(await targetFile('index.html'), template.replaceAll('__RELEASE__', version), 'utf8');

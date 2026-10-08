@@ -1,28 +1,25 @@
 import {postJSON, safeReturnPath} from '../api.js';
+import {mountCaptcha} from '../captcha.js';
 import {authSettings, recoveryPath, verificationSettings} from '../auth-model.js';
 import {el, icon, link, button, banner, inputField, loadingState, errorState, setBusy} from '../dom.js';
 
-function captcha(action, name = 'captcha', label = '图片验证码') {
+function captcha(action, signal, name = 'captcha_code', label = '图片验证码') {
   const control = inputField(label, name, {
     required: true,
-    inputmode: 'numeric',
     autocomplete: 'off',
-    maxlength: 8,
-    placeholder: '输入图片中的数字',
+    maxlength: 4,
+    placeholder: '输入图片中的字符',
   });
-  const image = el('img', {alt: '图片验证码；看不清可点击更换', width: 120, height: 44});
-  const refresh = () => {
-    image.src = `/user/captcha/image?action=${action}&_=${Date.now()}`;
-    control.input.value = '';
-  };
+  const image = el('img', {alt: '图片验证码；看不清可点击更换', width: 150, height: 50});
+  const status = el('p', {className: 'field-help', id: `${control.input.id}-status`});
   const trigger = el(
     'button',
-    {type: 'button', className: 'captcha-refresh', 'aria-label': `更换${label}`, onclick: refresh},
+    {type: 'button', className: 'captcha-refresh', 'aria-label': `更换${label}`},
     image
   );
-  control.field.append(el('div', {className: 'captcha-row'}, [control.input, trigger]));
-  refresh();
-  return {...control, refresh};
+  control.field.append(el('div', {className: 'captcha-row'}, [control.input, trigger]), status);
+  const challenge = mountCaptcha({action, signal, image, input: control.input, status, trigger});
+  return {...control, challenge, refresh: challenge.refresh};
 }
 
 export async function renderAuth(root, {url, signal, navigate, sitePromise, refreshSite}) {
@@ -105,11 +102,11 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
       : null;
   const imageCaptcha =
     !recovery && (registration ? auth.registration_captcha : auth.login_captcha)
-      ? captcha(registration ? 'register' : 'login')
+      ? captcha(registration ? 'register' : 'login', signal)
       : null;
   const verificationCaptcha =
     mode !== 'login' && verification.required
-      ? captcha(verification.action, 'verification-image', '发送前的图片验证码')
+      ? captcha(verification.action, signal, 'verification-image', '发送前的图片验证码')
       : null;
   // This image validates sending a code, not submitting the eventual signup or
   // recovery. It is consumed and refreshed after sending, so it cannot remain
@@ -136,6 +133,10 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
     code.field.append(el('div', {className: 'verification-row'}, [code.input, send]));
     send.addEventListener('click', async () => {
       if (send.disabled || !target.input.reportValidity()) return;
+      if (!verificationCaptcha.challenge.ready) {
+        sendStatus.replaceChildren(banner('请先加载有效的图片验证码。', 'error'));
+        return;
+      }
       if (!verificationCaptcha.input.value.trim()) {
         sendStatus.replaceChildren(banner('请先填写发送前的图片验证码。', 'error'));
         verificationCaptcha.input.focus();
@@ -148,7 +149,7 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
           `/user/api/authentication/${verification.action}`,
           {
             [verification.channel]: target.input.value.trim(),
-            captcha: verificationCaptcha.input.value.trim(),
+            ...verificationCaptcha.challenge.fields(),
           },
           {signal}
         );
@@ -202,6 +203,10 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (submit.disabled) return;
+    if (imageCaptcha && !imageCaptcha.challenge.ready) {
+      status.replaceChildren(banner('请先加载有效的图片验证码。', 'error'));
+      return;
+    }
     if (confirmation && confirmation.input.value !== password.input.value) {
       status.replaceChildren(banner('两次输入的密码不一致，请检查。', 'error'));
       confirmation.input.focus();
@@ -213,7 +218,7 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
     };
     if (mode === 'login') fields.remember = remember.checked;
     if (registration && target) fields[verification.channel] = target.input.value.trim();
-    if (imageCaptcha) fields.captcha = imageCaptcha.input.value.trim();
+    if (imageCaptcha) Object.assign(fields, imageCaptcha.challenge.fields());
     if (code) fields[recovery ? 'captcha' : `${verification.channel}_captcha`] = code.input.value.trim();
     setBusy(submit, true, recovery ? '正在重置' : '正在验证');
     status.replaceChildren();
@@ -275,6 +280,8 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
     ])
   );
   const cleanup = () => {
+    imageCaptcha?.challenge.dispose();
+    verificationCaptcha?.challenge.dispose();
     clearInterval(cooldown);
     password.input.value = '';
     if (confirmation) confirmation.input.value = '';

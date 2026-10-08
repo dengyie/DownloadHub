@@ -111,6 +111,7 @@ async function proxy(request, response, origin) {
     'content-disposition',
     'content-security-policy',
     'x-frame-options',
+    'x-captcha-id',
   ])
     if (result.headers.has(name)) response.setHeader(name, result.headers.get(name));
   if (result.headers.getSetCookie().length) response.setHeader('Set-Cookie', result.headers.getSetCookie());
@@ -124,7 +125,7 @@ const server = http.createServer(async (request, response) => {
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
   );
   try {
     const url = requestURL(request.url);
@@ -163,6 +164,8 @@ const server = http.createServer(async (request, response) => {
         return json(response, 404, {code: 404});
       return await file(response, path.join(root, 'src', relative), request.method === 'HEAD');
     }
+    if (pathname === '/ui/captcha.js')
+      return await file(response, path.join(root, 'src/captcha.js'), request.method === 'HEAD');
     if (/^\/brand\/(logo\.png|favicon\.ico|apple-touch-icon\.png)$/.test(pathname))
       return await file(response, path.join(root, '..', pathname), request.method === 'HEAD');
     if (resolveRoute(url.pathname)) {
