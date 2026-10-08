@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -24,7 +25,7 @@ class SnapshotTests(unittest.TestCase):
                 first = backup.snapshot(config)
                 second = backup.snapshot(config)
                 self.assertFalse(first.exists())
-                with sqlite3.connect(second / 'cards.db') as restored:
+                with closing(sqlite3.connect(second / 'cards.db')) as restored:
                     self.assertEqual(restored.execute('select value from sample').fetchone()[0], 'committed in WAL')
                 self.assertIn('cards.db', json.loads((second / 'manifest.json').read_text()))
             finally:

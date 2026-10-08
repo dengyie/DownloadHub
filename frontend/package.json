@@ -3,11 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "node dev.mjs",
     "dev:fixture": "node dev.mjs --fixture",
     "build": "node build.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "format": "prettier --write src tests build.mjs dev.mjs playwright.config.mjs index.html package.json",
+    "format:check": "prettier --check src tests build.mjs dev.mjs playwright.config.mjs index.html package.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "prettier": "3.6.2"
   }
 }

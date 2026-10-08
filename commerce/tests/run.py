@@ -2,6 +2,7 @@
 """Run the real PHP services against pinned public code and disposable SQLite DBs."""
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -81,7 +82,7 @@ def prepare(app, baseline):
     if digest(schema_sql) != baseline["schema_sha256"]:
         raise RuntimeError("Schema fixture SHA-256 mismatch")
     schema = app.parent / "schema.sqlite"
-    with sqlite3.connect(schema) as db:
+    with closing(sqlite3.connect(schema)) as db, db:
         db.executescript(schema_sql.read_text())
         tables = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
         if len(tables) != baseline["schema_tables"]:
@@ -113,13 +114,13 @@ def main():
         app = Path(temporary) / "app"
         schema = prepare(app, baseline)
         environment = dict(os.environ, COMMERCE_TEST_APP=str(app), COMMERCE_SCHEMA_DB=str(schema))
-        for suite in ["sqlite", "bill", "migration", "orders", "card-deletion"]:
+        for suite in ["sqlite", "bill", "migration", "orders", "card-deletion", "storefront"]:
             command = [args.php, "-d", "error_reporting=24575", str(HERE / (suite + ".php"))]
             if suite == "migration":
                 command.append(str(schema))
             print("Running commerce " + suite, flush=True)
             subprocess.run(command, env=environment, check=True, timeout=120)
-    print("PASS all five commerce suites (isolated public fixture)", flush=True)
+    print("PASS all six commerce suites (isolated public fixture)", flush=True)
 
 
 if __name__ == "__main__":

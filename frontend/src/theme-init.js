@@ -1,7 +1,9 @@
 // Runs before CSS. Only a display preference is persisted; credentials never are.
 (function () {
   let mode = 'auto';
-  try { mode = localStorage.getItem('mango-theme') || 'auto'; } catch {}
+  try {
+    mode = localStorage.getItem('mango-theme') || 'auto';
+  } catch {}
   if (!['auto', 'light', 'dark'].includes(mode)) mode = 'auto';
   const hour = new Date().getHours();
   const systemDark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;

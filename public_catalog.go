@@ -111,14 +111,18 @@ func (h *handler) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		h.respond(w, 405, map[string]any{"code": 405, "msg": "Method not allowed"})
 		return
 	}
-	if h.catalogErr != nil {
-		h.respond(w, 503, map[string]any{"code": 503, "msg": "公开资源目录暂时不可用"})
-		return
-	}
 	if r.Method == http.MethodHead {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
+		if h.catalogErr != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+		return
+	}
+	if h.catalogErr != nil {
+		h.respond(w, 503, map[string]any{"code": 503, "msg": "公开资源目录暂时不可用"})
 		return
 	}
 	h.respond(w, 200, map[string]any{"code": 200, "resources": h.catalog})

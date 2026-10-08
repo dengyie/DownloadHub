@@ -4,8 +4,15 @@ import {legacyRedemption, redemptionResult, grantExpired} from '../src/redemptio
 
 test('legacy credentials are parsed without any request and malformed tokens fail closed', () => {
   const credential = 'a'.repeat(64);
-  assert.deepEqual(legacyRedemption(new URL(`https://example.test/dl/private/tool.zip?token=${credential}`)), {resources: [{name: 'tool.zip', credential}]});
-  assert.deepEqual(legacyRedemption(new URL('https://example.test/dl/private/tool.zip?card=A&key=B')), {card: 'A', key: 'B', resource: 'private/tool.zip'});
+  assert.deepEqual(
+    legacyRedemption(new URL(`https://example.test/dl/private/tool.zip?token=${credential}`)),
+    {resources: [{name: 'tool.zip', credential}]}
+  );
+  assert.deepEqual(legacyRedemption(new URL('https://example.test/dl/private/tool.zip?card=A&key=B')), {
+    card: 'A',
+    key: 'B',
+    resource: 'private/tool.zip',
+  });
   assert.equal(legacyRedemption(new URL('https://example.test/redeem')), null);
   assert.throws(() => legacyRedemption(new URL('https://example.test/dl/private/tool.zip?token=bad')));
 });

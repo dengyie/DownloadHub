@@ -14,6 +14,13 @@ spec.loader.exec_module(release)
 
 
 class SourceGateTest(unittest.TestCase):
+    def test_checked_in_overlay_matches_the_release_inventory(self):
+        commerce = Path(__file__).resolve().parents[1] / 'commerce'
+        baseline = json.loads((commerce / 'release-baseline.json').read_text())
+        overlay = commerce / 'overlay'
+        files = {str(path.relative_to(overlay)) for path in overlay.rglob('*') if path.is_file()}
+        self.assertEqual(files, set(baseline), 'Every source must have an explicit drift precondition')
+
     def test_drift_and_unexpected_new_file_rejected_without_overwrite(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

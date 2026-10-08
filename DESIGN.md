@@ -14,7 +14,9 @@
 - `migrations.go` / `migrations/001.sql`：事务迁移、版本与 UTC 毫秒格式。
 - `openlist.go`：可取消认证刷新、generation 保护、协议解析、错误脱敏。
 - `gen.go` / `cli_validation.go` / `backup.go`：发卡管理、写前校验、一致性备份。
-- `web/`：无依赖页面与 DOM 行为测试；`web_embed.go` 保持单二进制。
+- `public_catalog.go`：启动时校验的公开目录 API；只允许已配置公开前缀。
+- `frontend/`：独立 HTML/CSS/ES modules、无运行时 npm 依赖的构建与真实浏览器回归。
+- `deploy/download-nginx.conf.example`：页面/静态/API/旧 PHP/文件传输的部署边界；Go 不再提供页面。
 
 ## 正确性边界
 
@@ -37,12 +39,15 @@
 | http_boundary_test.go | 代理伪造与端口绕过、配置核验、输入长度、URL主机限制、清理保留期、资源变更和凭证到期 |
 | openlist*_test.go | 登录、刷新、并发、迟到401、取消、响应大小、读取错误、协议错误、敏感信息和重定向 |
 | cli_test.go / backup_test.go | 非法输入写前拒绝、永久卡、只读备份、不覆盖、失败清理 |
-| web/frontend.test.cjs | 原始错误复现、DOM提交、复制兜底、重试credential、并发合并、主题异常、旧链接确认 |
+| api_boundary_test.go / public_catalog_test.go | Go 纯 API、目录白名单、HEAD、未知 API、配置失败关闭 |
+| frontend/tests/*.test.mjs | 表单协议、时间/数量/库存、URL 白名单、取消、同凭证恢复、构建/开发代理边界 |
+| frontend/tests/browser/*.spec.mjs | 实际 DOM、购买/订单/认证、复制兜底、凭证竞态、桌面/移动端和明暗主题 |
+| deploy/nginx_frontend_test.py | 真实 nginx 的路由归属、HEAD、请求体限制、路径规范化、安全头、缓存和日志脱敏 |
 
 ## 剩余边界
 
 - 未实现严格一次性文件传输或签名 URL 即时撤销。
 - 页面刷新后不保留凭证，避免引入持久卡密存储；需凭已有签名链接下载或重新兑换。
-- 未删除 acg-faka 或前缀卡能力；生产使用证据不足，见 production-readiness。
+- acg-faka 仍承担商城、支付、用户会话、账户深层操作及后台；旧前缀卡与 /dl 确认链接仍有实际调用，不能视为废弃代码删除。
 - 当前阶段提供请求计数、错误分类和结构化耗时日志，不包含独立 Prometheus 服务；容量需使用实际工作负载测量。
-- 本分支包含 schema 升级，应作为单独协议版本发布，不能按仅替换旧二进制的方式上线。
+- 历史 schema 1 升级与本次 UI 发布是不同事件。UI 发布不重跑 Go/MySQL→SQLite 迁移，不改变金额和授权事务；不得把历史迁移前二进制接回当前数据库。

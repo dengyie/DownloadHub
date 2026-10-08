@@ -12,8 +12,6 @@ import (
 )
 
 type Config struct {
-	FrontendDir        string   `yaml:"frontend_dir"`
-	APIOnly            bool     `yaml:"api_only"`
 	PublicCatalogPath  string   `yaml:"public_catalog_path"`
 	DownloadHosts      []string `yaml:"download_hosts"`
 	Listen             string   `yaml:"listen"`
@@ -85,15 +83,6 @@ func (c Config) validate() error {
 	for _, p := range c.PublicPrefixes {
 		if p == "" || p[0] == '/' || p[len(p)-1] != '/' || validateResourcePath(p[:len(p)-1]) != nil {
 			return fmt.Errorf("invalid public resource prefix")
-		}
-	}
-	if c.APIOnly && c.FrontendDir != "" {
-		return fmt.Errorf("frontend_dir and api_only cannot be enabled together")
-	}
-	if c.FrontendDir != "" {
-		info, err := os.Stat(c.FrontendDir + "/index.html")
-		if err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("frontend_dir must contain a built index.html")
 		}
 	}
 	if c.PublicCatalogPath != "" {

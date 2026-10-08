@@ -82,13 +82,13 @@ func TestHTTPGrantLifecycle(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
-func TestDownloadGETAndHEADNeverCharge(t *testing.T) {
+func TestGatewayDoesNotServeOrChargeBrowserDownloadLinks(t *testing.T) {
 	h, c := testHandler(t)
 	key := redeemCredential(t, h, c)
 	for _, method := range []string{"GET", "HEAD"} {
 		w := httptest.NewRecorder()
 		h.routes().ServeHTTP(w, httptest.NewRequest(method, DownloadPathWithToken("private/a%20b.zip", key), nil))
-		if w.Code != 200 {
+		if w.Code != http.StatusNotFound {
 			t.Fatal(w.Code)
 		}
 		got, _ := loadCard(h.db, c.CardID)

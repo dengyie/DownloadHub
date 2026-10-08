@@ -2,6 +2,9 @@
 # REVIEW ONLY: do not replace unrelated host sites. CF Tunnel ingress MUST target
 # http://localhost:80 (loopback IPv4/IPv6); no other public listener may expose this server block.
 # Only local cloudflared is trusted here; local processes are privileged peers.
+# Build frontend/dist and publish it to this read-only root. cardgw is API-only;
+# remove the retired frontend_dir/api_only configuration keys on upgrade. This
+# example must be compared with the current production site before deployment.
 log_format download_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
                          '$status $body_bytes_sent $request_time';
 
@@ -9,6 +12,22 @@ server {
     listen 127.0.0.1:80;
     listen [::1]:80;
     server_name download.mangoqwq.com;
+    root /var/www/download-ui/current;
+    default_type application/octet-stream;
+    types {
+        text/html html;
+        text/javascript js;
+        text/css css;
+        image/png png;
+        image/x-icon ico;
+        application/vnd.android.package-archive apk;
+    }
+    merge_slashes off;
+    # Check the raw path before nginx normalizes dot segments or decoded
+    # separators into a different route. Query values are deliberately excluded.
+    if ($request_uri ~* "^[^?]*(%2f|%5c|%0[0-9a-f]|%1[0-9a-f]|%7f)") { return 400; }
+    if ($request_uri ~* "^([^?]*/)(\\.|%2e){1,2}(/|\\?|$)") { return 400; }
+    if ($uri ~ "//|\\x5c") { return 400; }
     set_real_ip_from 127.0.0.1;
     set_real_ip_from ::1;
     real_ip_header CF-Connecting-IP;
@@ -35,35 +54,49 @@ server {
     location = /ready { return 404; }
     location = /metrics { return 404; }
     location /files/ { return 404; }
+    location = /files { return 404; }
 
-    location = /redeem { proxy_pass http://127.0.0.1:8080; }
-    location /brand/ { proxy_pass http://127.0.0.1:8080; }
-
-    # Modernized frontend static assets: immutable content-hashed bundles.
-    # Served by cardgw (or directly from /opt/cardgw/frontend/dist/ui/ via alias).
-    location /ui/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_hide_header Cache-Control;
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    # Only known fingerprinted files are immutable. Missing assets remain 404,
+    # never index.html. Keep previous releases until existing tabs have expired.
+    location /ui/ { return 404; }
+    location ~ "^/ui/[a-f0-9]{24}/[A-Za-z0-9_/-]+\.(?:js|css)$" {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
         add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+    }
+    location /brand/ { return 404; }
+    location ~ "^/brand/(?:logo\.png|favicon\.ico|apple-touch-icon\.png)$" {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=86400";
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
     }
 
-    # Modernized SPA document routes: rendered via cardgw with no-store HTML shell.
-    location = / { proxy_pass http://127.0.0.1:8080; }
-    location = /help { proxy_pass http://127.0.0.1:8080; }
-    location = /orders { proxy_pass http://127.0.0.1:8080; }
-    location ~ ^/resources/[a-z0-9-]+$ { proxy_pass http://127.0.0.1:8080; }
-    location ~ ^/item/[1-9]\d*$ { proxy_pass http://127.0.0.1:8080; }
-    location ~ ^/cat/(\d+|recommend)$ { proxy_pass http://127.0.0.1:8080; }
-    location ~ ^/user/index/(index|item|query)$ { proxy_pass http://127.0.0.1:8080; }
-    location ~ ^/user/authentication/(login|register|emailForget|phoneForget)$ { proxy_pass http://127.0.0.1:8080; }
-    location = /user/dashboard/index { proxy_pass http://127.0.0.1:8080; }
-
-    # acg-faka owns other /assets/ paths. Do not hijack the entire prefix.
-    location = /assets/redeem.js { proxy_pass http://127.0.0.1:8080; }
-    location = /assets/redeem.css { proxy_pass http://127.0.0.1:8080; }
-    location /api/ {
+    # This list mirrors frontend/src/router.js. Never use
+    # a site-wide try_files fallback: it would swallow APIs, payment and admin.
+    location ~ "^(?:/|/(?:redeem|help|orders|resources/[a-z0-9-]+|item/[1-9][0-9]*|cat/(?:[0-9]+|recommend)|user/index/(?:index|item|query)|user/authentication/(?:login|register|emailForget|phoneForget)|user/dashboard/index)/?)$" {
+        try_files /index.html =503;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+    }
+    # Old links show a confirmation page. The browser validates the resource and
+    # scrubs card/key/token query values; GET/HEAD never issue a grant or debit.
+    location /dl/ { return 404; }
+    location ~ "^/dl/(?:[^/,?#]+/)*[^/,?#]+$" {
+        try_files /index.html =503;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+    }
+    location ^~ /api/ {
         client_max_body_size 16k;
         proxy_pass http://127.0.0.1:8080;
         proxy_hide_header Cache-Control;
@@ -72,15 +105,17 @@ server {
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Referrer-Policy no-referrer always;
     }
-    location /dl/ {
-        proxy_pass http://127.0.0.1:8080;
+    # Keep the existing 64 KiB limit for both checkout APIs and cashier posts.
+    location ~ "^/user/(?:api|pay)/" {
+        client_max_body_size 64k;
+        proxy_pass http://127.0.0.1:8081;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "no-store" always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Referrer-Policy no-referrer always;
     }
-    location /p/ {
+    location ^~ /p/ {
         proxy_pass http://127.0.0.1:5244;
         proxy_buffering off;
         proxy_read_timeout 300s;
@@ -92,35 +127,23 @@ server {
     }
     # Public distribution only. Never place card-protected resources here.
     # Existing manual.txt classification requires an operator decision.
-    location /pub/ {
+    location ^~ /pub/ {
         alias /data/share/pub/;
         autoindex off;
-        add_header Cache-Control "public, max-age=86400" always;
+        add_header Cache-Control "public, max-age=86400";
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Referrer-Policy no-referrer always;
     }
-
-    # Commerce backend APIs and payment routes (acg-faka on port 8081).
-    location /user/api/ {
-        client_max_body_size 64k;
+    # Existing customer-center operations, /user/captcha/, /user/pay/, /pay/,
+    # /admin/, commerce assets and unknown routes remain PHP-owned. Do not apply
+    # the SPA's no-inline CSP to legacy PHP documents or payment plugin pages.
+    location / {
         proxy_pass http://127.0.0.1:8081;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy no-referrer always;
     }
-    location /user/captcha/ {
-        proxy_pass http://127.0.0.1:8081;
-    }
-    location = /user/authentication/logout {
-        proxy_pass http://127.0.0.1:8081;
-    }
-    location /user/pay/ {
-        client_max_body_size 64k;
-        proxy_pass http://127.0.0.1:8081;
-    }
-    location /pay/ {
-        proxy_pass http://127.0.0.1:8081;
-    }
-    location /admin/ {
-        proxy_pass http://127.0.0.1:8081;
-    }
-    location / { proxy_pass http://127.0.0.1:8081; }
 }

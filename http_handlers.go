@@ -5,14 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,8 +17,6 @@ import (
 )
 
 type handler struct {
-	frontend           http.Handler
-	apiOnly            bool
 	catalog            []publicResource
 	catalogErr         error
 	db                 *sql.DB
@@ -34,11 +29,8 @@ type handler struct {
 }
 
 func newHandler(db *sql.DB, ol olClient, cfg Config) *handler {
-	h := &handler{db: db, ratelimit: newRateLimiter(), public: cfg.PublicPrefixes, apiOnly: cfg.APIOnly}
+	h := &handler{db: db, ratelimit: newRateLimiter(), public: cfg.PublicPrefixes}
 	h.catalog, h.catalogErr = loadPublicCatalog(cfg.PublicCatalogPath, cfg.PublicPrefixes)
-	if cfg.FrontendDir != "" {
-		h.frontend = newFrontendHandler(os.DirFS(cfg.FrontendDir))
-	}
 	for _, s := range cfg.TrustedProxyCIDRs {
 		p, err := netip.ParsePrefix(s)
 		if err == nil {
@@ -58,23 +50,6 @@ func (h *handler) routes() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		h.respond(w, 404, map[string]any{"code": 404, "msg": "API not found"})
 	})
-	if !h.apiOnly {
-		mux.HandleFunc("/brand/", h.handleBrandAsset)
-		mux.HandleFunc("/redeem", h.handleRedeemPage)
-		mux.HandleFunc("/dl/", h.handleDownload)
-		if h.frontend != nil {
-			mux.Handle("/", h.frontend)
-		} else {
-			// Compatibility mode for existing installs; the new frontend is deployed
-			// independently via nginx or the explicit frontend_dir option.
-			assets, _ := fs.Sub(webAssets, "web")
-			assetHandler := http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))
-			mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Cache-Control", "no-store")
-				assetHandler.ServeHTTP(w, r)
-			}))
-		}
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.requests.Add(1)
 		id, err := randomSecret(12)
@@ -248,31 +223,6 @@ func (h *handler) handleGrants(w http.ResponseWriter, r *http.Request) {
 	slog.Info("grant issued or recovered", "request_id", w.Header().Get("X-Request-ID"), "grant_id", g.ID, "elapsed_ms", time.Since(start).Milliseconds())
 	h.respond(w, 200, map[string]any{"code": 200, "url": g.URL, "expires_at": g.ExpiresAt, "grant_id": g.ID, "quota": g.Quota})
 }
-func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
-	if err := validateResourcePath(strings.TrimPrefix(r.URL.Path, "/dl/")); err != nil {
-		h.fail(w, err)
-		return
-	}
-	// Old links remain usable as an explicit confirmation page, never a GET charge.
-	h.handleRedeemPage(w, r)
-}
-func (h *handler) handleRedeemPage(w http.ResponseWriter, r *http.Request) {
-	if h.frontend != nil {
-		h.frontend.ServeHTTP(w, r)
-		return
-	}
-	h.securityHeaders(w)
-	w.Header().Set("Cache-Control", "no-store")
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", 405)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if r.Method == http.MethodGet {
-		fmt.Fprint(w, redeemHTML)
-	}
-}
 func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, 200, map[string]any{"status": "ok", "version": version})
 }
@@ -284,23 +234,6 @@ func (h *handler) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.respond(w, 200, map[string]any{"status": "ready", "schema": schemaVersion, "requests": h.requests.Load(), "failures": h.failures.Load(), "backend": "checked_on_demand"})
-}
-func (h *handler) handleBrandAsset(w http.ResponseWriter, r *http.Request) {
-	h.securityHeaders(w)
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	switch strings.TrimPrefix(r.URL.Path, "/brand/") {
-	case "logo.png":
-		w.Header().Set("Content-Type", "image/png")
-		w.Write(brandLogoPNG)
-	case "favicon.ico":
-		w.Header().Set("Content-Type", "image/x-icon")
-		w.Write(brandFaviconICO)
-	case "apple-touch-icon.png":
-		w.Header().Set("Content-Type", "image/png")
-		w.Write(brandAppleTouchPNG)
-	default:
-		http.NotFound(w, r)
-	}
 }
 func DownloadPathWithToken(resource, token string) string {
 	parts := strings.Split(normalizeResource(resource), "/")
