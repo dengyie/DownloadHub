@@ -1,0 +1,18 @@
+[
+  {
+    "id": "frpc-arm64", "name": "FRP 内网穿透客户端", "description": "轻量、安全的内网连接工具。适用于 Linux ARM64 与 Android Termux 环境。",
+    "category": "tools", "version": "0.71.0", "platform": "Linux · ARM64", "path": "/pub/frpc-0.71.0-linux-arm64", "filename": "frpc-0.71.0-linux-arm64", "bytes": 14811320, "updated_at": "2026-09-29", "kind": "binary", "featured": true
+  },
+  {
+    "id": "termux-setup", "name": "Termux 连接配置脚本", "description": "交互式配置 FRP 连接，包含输入校验、DNS 适配与日志轮转。下载后按提示配置。",
+    "category": "scripts", "version": "v10", "platform": "Android · Termux", "path": "/pub/install-termux.sh", "filename": "install-termux.sh", "bytes": 14516, "updated_at": "2026-09-29", "kind": "script", "featured": false
+  },
+  {
+    "id": "guoguo-tv", "name": "果果剧库 TV", "description": "适用于 Android TV 的应用安装包，支持下载后手动安装。请确认设备兼容性。",
+    "category": "android", "version": "1.0.28", "platform": "Android TV", "path": "/pub/guoguo-juku-tv-1.0.28.apk", "filename": "guoguo-juku-tv-1.0.28.apk", "bytes": 19082934, "updated_at": "2026-10-03", "kind": "app", "featured": false
+  },
+  {
+    "id": "nodequality", "name": "NodeQuality 测评脚本", "description": "检查 VPS 的硬件、网络与线路表现，快速了解服务器的基础能力。",
+    "category": "scripts", "version": "2026-10-07", "platform": "Linux", "path": "/pub/nodequality.sh", "filename": "nodequality.sh", "bytes": 18125, "updated_at": "2026-10-07", "kind": "script", "featured": true
+  }
+]

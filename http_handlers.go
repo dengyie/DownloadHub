@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,10 @@ import (
 )
 
 type handler struct {
+	frontend           http.Handler
+	apiOnly            bool
+	catalog            []publicResource
+	catalogErr         error
 	db                 *sql.DB
 	service            *redemptionService
 	ratelimit          *rateLimiter
@@ -29,7 +34,11 @@ type handler struct {
 }
 
 func newHandler(db *sql.DB, ol olClient, cfg Config) *handler {
-	h := &handler{db: db, ratelimit: newRateLimiter(), public: cfg.PublicPrefixes}
+	h := &handler{db: db, ratelimit: newRateLimiter(), public: cfg.PublicPrefixes, apiOnly: cfg.APIOnly}
+	h.catalog, h.catalogErr = loadPublicCatalog(cfg.PublicCatalogPath, cfg.PublicPrefixes)
+	if cfg.FrontendDir != "" {
+		h.frontend = newFrontendHandler(os.DirFS(cfg.FrontendDir))
+	}
 	for _, s := range cfg.TrustedProxyCIDRs {
 		p, err := netip.ParsePrefix(s)
 		if err == nil {
@@ -43,17 +52,29 @@ func (h *handler) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", h.handleHealth)
 	mux.HandleFunc("/ready", h.handleReady)
-	mux.HandleFunc("/brand/", h.handleBrandAsset)
-	mux.HandleFunc("/redeem", h.handleRedeemPage)
-	mux.HandleFunc("/dl/", h.handleDownload)
+	mux.HandleFunc("/api/catalog", h.handleCatalog)
 	mux.HandleFunc("/api/redeem", h.handleRedeemAPI)
 	mux.HandleFunc("/api/grants", h.handleGrants)
-	assets, _ := fs.Sub(webAssets, "web")
-	assetHandler := http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))
-	mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		assetHandler.ServeHTTP(w, r)
-	}))
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		h.respond(w, 404, map[string]any{"code": 404, "msg": "API not found"})
+	})
+	if !h.apiOnly {
+		mux.HandleFunc("/brand/", h.handleBrandAsset)
+		mux.HandleFunc("/redeem", h.handleRedeemPage)
+		mux.HandleFunc("/dl/", h.handleDownload)
+		if h.frontend != nil {
+			mux.Handle("/", h.frontend)
+		} else {
+			// Compatibility mode for existing installs; the new frontend is deployed
+			// independently via nginx or the explicit frontend_dir option.
+			assets, _ := fs.Sub(webAssets, "web")
+			assetHandler := http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))
+			mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", "no-store")
+				assetHandler.ServeHTTP(w, r)
+			}))
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.requests.Add(1)
 		id, err := randomSecret(12)
@@ -72,7 +93,7 @@ func (h *handler) securityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 }
 func (h *handler) limited(r *http.Request, limit int) bool {
 	h.once.Do(func() {
@@ -236,6 +257,10 @@ func (h *handler) handleDownload(w http.ResponseWriter, r *http.Request) {
 	h.handleRedeemPage(w, r)
 }
 func (h *handler) handleRedeemPage(w http.ResponseWriter, r *http.Request) {
+	if h.frontend != nil {
+		h.frontend.ServeHTTP(w, r)
+		return
+	}
 	h.securityHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

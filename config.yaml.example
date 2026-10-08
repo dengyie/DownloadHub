@@ -20,3 +20,10 @@ trusted_proxy_cidrs: ["127.0.0.1/32"]
 # Relative, trailing slash, no leading slash. Match all deployed public aliases.
 public_prefixes: ["pub/"]
 audit_retention_days: 90
+# Standalone UI: serve frontend/dist through nginx with api_only: true.
+# Optional single-process preview: frontend_dir: /absolute/path/to/frontend/dist
+# Empty frontend_dir + api_only: false preserves the existing redemption page.
+api_only: false
+frontend_dir: ""
+# Optional curated JSON catalog; empty uses the reviewed catalog/public.json.
+public_catalog_path: ""
