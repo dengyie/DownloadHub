@@ -1,6 +1,6 @@
 # Third-party UI sources
 
-`src/vendor/UiIcon.js` and `src/vendor/ThemeToggle.js` are copied/adapted from [dengyie/awesome-ui](https://github.com/dengyie/awesome-ui), Vanilla components, retrieved 2026-10-09. UiIcon geometry follows [Tabler Icons](https://github.com/tabler/tabler-icons). Both projects use the MIT license. ThemeToggle is adapted to use UiIcon, Chinese accessible labels, storage failure handling and removable system/storage listeners; theme persistence remains compatible with `mango-theme`.
+`src/vendor/UiIcon.js` and `src/vendor/ThemeToggle.js` are copied/adapted from the user-designated [dengyie/awesome-ui](https://github.com/dengyie/awesome-ui), Vanilla components, retrieved 2026-10-09. That repository does not currently publish a standalone LICENSE file; this record must not be mistaken for a new license grant on its behalf. UiIcon geometry follows [Tabler Icons](https://github.com/tabler/tabler-icons), whose MIT notice is reproduced below. ThemeToggle is adapted to use UiIcon, Chinese accessible labels, storage failure handling and removable system/storage listeners; theme persistence remains compatible with `mango-theme`.
 
 The MangoQWQ logo/favicon are the existing project brand assets, not generated replacements.
 
