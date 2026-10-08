@@ -41,7 +41,7 @@ export function errorState(error, retry) {
 export function setBusy(target, busy, message) {
   target.disabled = busy;
   target.setAttribute('aria-busy', String(busy));
-  if (message) target.replaceChildren(busy && icon('loader', 18), el('span', {text: message}));
+  if (message) target.replaceChildren(...(busy ? [icon('loader', 18)] : []), el('span', {text: message}));
 }
 export function inputField(label, name, attrs = {}) {
   const input = el('input', {id: attrs.id || `field-${name}`, name, ...attrs});

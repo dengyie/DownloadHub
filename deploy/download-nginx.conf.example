@@ -38,6 +38,28 @@ server {
 
     location = /redeem { proxy_pass http://127.0.0.1:8080; }
     location /brand/ { proxy_pass http://127.0.0.1:8080; }
+
+    # Modernized frontend static assets: immutable content-hashed bundles.
+    # Served by cardgw (or directly from /opt/cardgw/frontend/dist/ui/ via alias).
+    location /ui/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy no-referrer always;
+    }
+
+    # Modernized SPA document routes: rendered via cardgw with no-store HTML shell.
+    location = / { proxy_pass http://127.0.0.1:8080; }
+    location = /help { proxy_pass http://127.0.0.1:8080; }
+    location = /orders { proxy_pass http://127.0.0.1:8080; }
+    location ~ ^/resources/[a-z0-9-]+$ { proxy_pass http://127.0.0.1:8080; }
+    location ~ ^/item/[1-9]\d*$ { proxy_pass http://127.0.0.1:8080; }
+    location ~ ^/cat/(\d+|recommend)$ { proxy_pass http://127.0.0.1:8080; }
+    location ~ ^/user/index/(index|item|query)$ { proxy_pass http://127.0.0.1:8080; }
+    location ~ ^/user/authentication/(login|register|emailForget|phoneForget)$ { proxy_pass http://127.0.0.1:8080; }
+    location = /user/dashboard/index { proxy_pass http://127.0.0.1:8080; }
+
     # acg-faka owns other /assets/ paths. Do not hijack the entire prefix.
     location = /assets/redeem.js { proxy_pass http://127.0.0.1:8080; }
     location = /assets/redeem.css { proxy_pass http://127.0.0.1:8080; }
@@ -77,6 +99,28 @@ server {
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Referrer-Policy no-referrer always;
+    }
+
+    # Commerce backend APIs and payment routes (acg-faka on port 8081).
+    location /user/api/ {
+        client_max_body_size 64k;
+        proxy_pass http://127.0.0.1:8081;
+    }
+    location /user/captcha/ {
+        proxy_pass http://127.0.0.1:8081;
+    }
+    location = /user/authentication/logout {
+        proxy_pass http://127.0.0.1:8081;
+    }
+    location /user/pay/ {
+        client_max_body_size 64k;
+        proxy_pass http://127.0.0.1:8081;
+    }
+    location /pay/ {
+        proxy_pass http://127.0.0.1:8081;
+    }
+    location /admin/ {
+        proxy_pass http://127.0.0.1:8081;
     }
     location / { proxy_pass http://127.0.0.1:8081; }
 }
