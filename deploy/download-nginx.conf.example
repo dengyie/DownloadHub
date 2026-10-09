@@ -8,6 +8,17 @@
 log_format download_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
                          '$status $body_bytes_sent $request_time';
 
+# Omitting cache headers on errors still permits CDN/browser heuristic caching.
+# Cache only successful static responses; every other status is explicitly no-store.
+map $status $download_immutable_cache {
+    default "no-store";
+    ~^(200|206|304)$ "public, max-age=31536000, immutable";
+}
+map $status $download_public_cache {
+    default "no-store";
+    ~^(200|206|304)$ "public, max-age=86400";
+}
+
 server {
     listen 127.0.0.1:80;
     listen [::1]:80;
@@ -37,6 +48,7 @@ server {
     # never enable debug logging for production authorization requests.
     error_log /personal/pxed/nginx/logs/download-error.log crit;
 
+    add_header Cache-Control "no-store" always;
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy no-referrer always;
@@ -68,7 +80,7 @@ server {
     location /ui/ { return 404; }
     location ~ "^/ui/[a-f0-9]{24}/[A-Za-z0-9_/-]+\.(?:js|css)$" {
         try_files $uri =404;
-        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header Cache-Control $download_immutable_cache always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
@@ -76,7 +88,7 @@ server {
     location /brand/ { return 404; }
     location ~ "^/brand/(?:logo\.png|favicon\.ico|apple-touch-icon\.png)$" {
         try_files $uri =404;
-        add_header Cache-Control "public, max-age=86400";
+        add_header Cache-Control $download_public_cache always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
@@ -137,7 +149,7 @@ server {
     location ^~ /pub/ {
         alias /data/share/pub/;
         autoindex off;
-        add_header Cache-Control "public, max-age=86400";
+        add_header Cache-Control $download_public_cache always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Referrer-Policy no-referrer always;

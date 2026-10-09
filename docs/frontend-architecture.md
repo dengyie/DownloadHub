@@ -74,9 +74,11 @@ npm --prefix frontend run build
 
 生成 `frontend/dist/index.html`、`ui/<hash>/`、`ui/captcha.js`、三项品牌资源和 `build.json`。稳定验证码入口与指纹模块来自相同源文件、字节一致。哈希涵盖模板、文件名与全部 JS/CSS 内容；不打包测试、模拟数据、后端配置或依赖目录。构建拒绝覆盖源码、输出符号链接和异常文件，保留旧指纹目录以服务已打开的页面。
 
-生产根推荐 `/var/www/download-ui/current`，目录必须可被 nginx worker 读取，不能为了托管前端开放 `/root` 权限。候选版本完整校验后原子切换 current；候选包应保留之前仍在使用的指纹目录。HTML `no-store`；仅成功的指纹静态响应使用一年 immutable，404 不长缓存。品牌资源与公开文件有独立缓存期限。
+生产根为 `/var/www/download-ui/current`，目录必须可被 nginx worker 读取，不能为了托管前端开放 `/root` 权限。候选版本完整校验后原子切换 current；候选包应保留之前仍在使用的指纹目录。HTML `no-store`；指纹静态资源仅在 200/206/304 使用一年 immutable，品牌/公开文件成功响应缓存一天，其余状态明确 `no-store`。仅省略成功缓存头仍会触发浏览器/CDN 的启发式缓存，不能替代错误响应上的 `no-store`。
 
-Go 配置移除 `frontend_dir`、`api_only`。新旧 Go 的卡密 schema 和事务相同，本次不迁移数据库。PHP 引导文件未变，但验证码后端/调用方/后台模板必须与新前端成套发布，受控停止 PHP 后替换并重启；只覆盖实际不同的文件，保存旧源码和代理配置。禁止调用历史 MySQL 切换脚本、重放 schema 或绕过 source drift 检查。旧标签页需刷新以使用新验证码协议，不保留旧 session 回退。
+Cloudflare 的下载站专属 Cache Rule 必须位于共享 `/pub/` 强制缓存规则之后，条件同时限定 `http.host eq "download.mangoqwq.com"` 与 `/pub/` 前缀，`cache=true`、`edge_ttl.mode=respect_origin`、`browser_ttl.mode=respect_origin`。正常文件继续按源站一天缓存，缺失文件应在连续公网请求中保持 404/no-store/BYPASS；仅验证源站或第一次 MISS 不足以验收。不要修改其他主机的共享规则、放宽 WAF 或全区 purge 来掩盖此问题。
+
+Go 配置移除 `frontend_dir`、`api_only`。新旧 Go 的卡密 schema 和事务相同，本次不迁移数据库。PHP 引导文件未变，但验证码后端/调用方/后台模板必须与新前端成套发布，受控停止 PHP 后替换并重启；只覆盖实际不同的文件，保存旧源码和代理配置。PHP `config/app.php` 的资源版本已从 `3.5.7` 改为 `3.5.7-mq.20261009.1`，避免原后台/安全页继续命中旧 JS；这不是升级上游内核。禁止调用历史 MySQL 切换脚本、重放 schema 或绕过 source drift 检查。旧标签页需刷新以使用新验证码协议，不保留旧 session 回退。
 
 先用真实 nginx、私有端口和模拟 API 验证路由，再暂存二进制/配置、保存源码与一致性 SQLite 备份，成套切换前端/PHP/nginx 和 Go。新静态根必须纳入常规备份；重启备份进程前精确保留会被 retention 淘汰的旧快照，不能因发布额外删除备份。回滚只恢复本次源码/二进制/配套配置/前端指向，不能恢复旧数据库丢弃新增业务。具体发布事实见 [验收记录](release-2026-10-09-ui-api.md)。
 

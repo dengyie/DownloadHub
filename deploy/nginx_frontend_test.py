@@ -155,6 +155,7 @@ class NginxFrontendTest(unittest.TestCase):
             with self.subTest(path=path):
                 status, headers, body = self.request(path)
                 self.assertEqual(status, 404)
+                self.assertEqual(headers.get('cache-control'), 'no-store')
                 self.assertNotIn('immutable', headers.get('cache-control', ''))
                 self.assertNotEqual(body, self.shell)
         self.assertEqual(self.request('/brand/logo.png')[0], 200)
@@ -212,6 +213,7 @@ class NginxFrontendTest(unittest.TestCase):
         self.assertIn('public', headers.get('cache-control', ''))
         status, headers, _ = self.request('/pub/missing.zip')
         self.assertEqual(status, 404)
+        self.assertEqual(headers.get('cache-control'), 'no-store')
         self.assertNotIn('public', headers.get('cache-control', ''))
 
     def test_private_infrastructure_paths_are_not_exposed(self):
