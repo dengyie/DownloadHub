@@ -74,9 +74,13 @@ check(!$store->consume($first['id'], $first['code'], 'login', '192.0.2.1', 1001)
 **Files:** `commerce/release-baseline.json`, `docs/frontend-architecture.md`, `docs/review-2026-10-09-ui-api.md`, `docs/release-2026-10-09-ui-api.md`, canonical Obsidian entry and its two indexes.
 
 - [x] Record hashes of the exact currently deployed 33 overlay paths before replacement and cross-check against pinned upstream/already deployed sources. Only CaptchaStore is new; keep old source and new candidate in private release evidence, with no business data rollback or schema replay.
-- [ ] Run the full Node/browser/Go/Python/nginx/PHP gates, then review the final diff and make a verified branch commit.
-- [x] Obtain separate approval and remove the two retired Go UI files, then rerun Go race/vet. Static-backup activation remains a release gate below.
-- [ ] Configure the existing PHP client parser for nginx's overwritten X-Real-IP (mode 1, trusted peers only 127.0.0.1/::1), preserving prior files/absence. The missing production settings were reproduced as both visitors becoming 127.0.0.1; Client/nginx regression coverage is now passing.
-- [ ] Add the standalone UI and release evidence to recurring backups after preserving the exact oldest completed snapshot outside retention scanning; keep retention/interval unchanged and verify a fresh snapshot.
-- [ ] Deploy paired frontend/PHP changes in a short controlled window, verify PNG headers and read-only endpoints, then confirm GitHub state. Keep rollback source/config pointers; never restore stale DBs.
-- [ ] Update existing Obsidian canonical note, AI-DOC-ROUTER and 项目索引 in the same task; run `python3 .local/bin/scan-stale-docs`.
+- [x] Run the full Node/browser/Go/Python/nginx/PHP gates, then review the final diff and make a verified branch commit. Core commit 1c5150e and cache fix 8835d86 both passed GitHub CI and were fast-forwarded into main after rebase.
+- [x] Obtain separate approval and remove the two retired Go UI files, then rerun Go race/vet. The static-backup release gate is also complete below.
+- [x] Configure the existing PHP client parser for nginx's overwritten X-Real-IP (mode 1, trusted peers only 127.0.0.1/::1), preserving prior files/absence. Real production probes with two TEST-NET addresses confirmed independent IP binding; Client/nginx regressions pass.
+- [x] Add the standalone UI and release evidence to recurring backups after preserving the exact oldest completed snapshot outside retention scanning; keep retention/interval unchanged and verify a fresh snapshot. All 28 recurring snapshots remain; the post-cache-fix snapshot was created in a separate retained directory without service restart or pruning.
+- [x] Deploy paired frontend/PHP changes in a short controlled window, verify PNG headers and read-only endpoints, then confirm GitHub state. Activated at 2026-10-09 07:53:54 Asia/Shanghai. Two original visible images both passed correct-answer validation, replay failed, and no account credentials were sent. Business schemas and databases were not migrated or restored.
+- [x] Update existing Obsidian canonical note, AI-DOC-ROUTER and 项目索引 in the same task; run `python3 .local/bin/scan-stale-docs`. No stale hits or new warnings; three unrelated pre-existing metadata warnings remain.
+
+## Final cache-boundary follow-up
+
+Public validation exposed 404 heuristic caching even without immutable. Five stricter nginx assertions failed before explicit status-based no-store, then all 12 nginx tests passed. The shared Cloudflare /pub/ override still produced a second-request HIT; a download-host-only trailing respect_origin rule corrected this without changing the three existing rules. After edge propagation, all 18 public checks passed, including repeated missing-file BYPASS and successful public-file MISS→HIT. Exact hashes, backups and evidence are in the release record.

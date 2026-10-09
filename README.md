@@ -2,7 +2,7 @@
 
 MangoQWQ 资源站：独立静态前端 + Go/SQLite 卡密授权 API + PHP/SQLite 商城 API + OpenList 文件传输。用户输入卡密查看资源，以 POST 明确签发下载授权；同一凭证在固定有效期内可恢复，最多扣一次额度。
 
-**UI/API 重构分支：`codex/download-ui-api`。** 前端覆盖资源目录、资源详情、兑换、购买、订单查询、登录/注册/找回密码与账户概览。充值、账单、个人资料、安全设置及后台管理继续使用原 PHP 页面。架构、路由、接口和独立部署方式见 [前后端分离说明](docs/frontend-architecture.md)，验收与实际发布状态见 [UI 重构验收](docs/release-2026-10-09-ui-api.md)，根因修复见 [生产级 Review](docs/review-2026-10-09-ui-api.md)。
+**2026-10-09：UI/API 分离与 xianyu 协议验证码已上线。** 开发分支 `codex/download-ui-api` 已合入 main，nginx 独立托管前端、Go 纯 API。前端覆盖资源目录、详情、兑换、购买、查单、登录/注册/找回密码与账户概览；充值、账单、资料、安全设置及后台继续使用原 PHP 页面。架构和部署见 [前后端分离说明](docs/frontend-architecture.md)，实际版本与验收见 [UI 重构验收](docs/release-2026-10-09-ui-api.md)，根因修复见 [生产级 Review](docs/review-2026-10-09-ui-api.md)。
 
 历史数据库/协议升级及宿主资源问题见 [2026-10-01 发布记录](docs/release-2026-10-01.md) 和 [当时的实施状态](docs/implementation-status.md)，不要据此推断当前线上版本。禁止旧二进制接回迁移后的数据库。
 
