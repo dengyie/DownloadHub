@@ -52,7 +52,7 @@
 
 - `GET /user/captcha/image?action=<scene>` 返回 150×50 PNG、`X-Captcha-Id`（128-bit 随机 base64url）和 no-store；表单只提交配对的 `captcha_id` / `captcha_code`。
 - 四位字符来自 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，不区分大小写，300 秒有效。同场景多图片、多标签页互不覆盖；匹配 scene/IP 的答案尝试在 `BEGIN IMMEDIATE` 事务内单次消费，对错都不能重放。
-- 临时状态在系统临时根下私有 `opencardgate-captcha-<应用路径哈希>/challenges.sqlite`，目录 0700、文件 0600，检查 owner/type/link，位于 webroot 外，不写商城库。60 images/IP/300 秒、全局 10,000 条；已消费行保留到过期，不能靠消费绕过限流。存储不可用时明确失败。
+- 临时状态在系统临时根下私有 `downloadhub-captcha-<应用路径哈希>/challenges.sqlite`，目录 0700、文件 0600，检查 owner/type/link，位于 webroot 外，不写商城库。60 images/IP/300 秒、全局 10,000 条；已消费行保留到过期，不能靠消费绕过限流。存储不可用时明确失败。
 - 前端只在图片解码完成后启用输入；10 秒超时覆盖响应、正文和解码等待。刷新/离页中断旧加载、释放 object URL，序列校验拒绝迟到响应。到期禁用提交，用户可主动重试。
 - 覆盖客户登录/注册、发送注册/找回邮件短信、下单、后台登录与账户换绑发送码。邮件/短信最终业务验证码、SSO、TOTP 和订单事务保持原合同。
 - 生产必须通过现有 `Client` 配置读取 nginx 覆盖的 `X-Real-IP`：`runtime/mode=1`，`runtime/trusted_proxies` 仅 `127.0.0.1` 和 `::1`。缺配置的默认模式会把访客归为代理地址；不得放宽代理白名单或直接信任任意来路的请求头。

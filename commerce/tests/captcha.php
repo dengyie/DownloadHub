@@ -85,7 +85,7 @@ $bounded->issue('login', '192.0.2.100', 5000);
 check((int)$boundedDB->query('SELECT COUNT(*) FROM challenges')->fetchColumn() === 1, 'expired rows reclaim bounded capacity');
 
 $private = CaptchaStore::open();
-$directory = realpath(sys_get_temp_dir()) . '/opencardgate-captcha-' . substr(hash('sha256', realpath(BASE_PATH)), 0, 20);
+$directory = realpath(sys_get_temp_dir()) . '/downloadhub-captcha-' . substr(hash('sha256', realpath(BASE_PATH)), 0, 20);
 check((fileperms($directory) & 0777) === 0700, 'captcha directory must be owner-only');
 check((fileperms($directory . '/challenges.sqlite') & 0777) === 0600, 'captcha database must be owner-only');
 check(!str_starts_with($directory, rtrim(BASE_PATH, '/') . '/'), 'ephemeral captcha database stays outside document root');
