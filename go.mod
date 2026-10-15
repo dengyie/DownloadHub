@@ -1,4 +1,4 @@
-module github.com/dengyie/opencardgate
+module github.com/dengyie/DownloadHub
 
 go 1.26.4
 

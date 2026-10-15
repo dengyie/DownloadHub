@@ -1,6 +1,6 @@
-# Contributing to OpenCardGate
+# Contributing to DownloadHub
 
-Thank you for your interest in contributing to **OpenCardGate**! We welcome contributions, bug reports, and suggestions from the community.
+Thank you for your interest in contributing to **DownloadHub**! We welcome contributions, bug reports, and suggestions from the community.
 
 ## Development Workflow
 

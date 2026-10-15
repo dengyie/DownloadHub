@@ -8,10 +8,13 @@ import (
 )
 
 func TestCLIHelper(t *testing.T) {
-	if os.Getenv("OPENCARDGATE_CLI_TEST") != "1" && os.Getenv("CARDGW_CLI_TEST") != "1" {
+	if os.Getenv("DOWNLOADHUB_CLI_TEST") != "1" && os.Getenv("OPENCARDGATE_CLI_TEST") != "1" && os.Getenv("CARDGW_CLI_TEST") != "1" {
 		return
 	}
-	db := os.Getenv("OPENCARDGATE_CLI_DB")
+	db := os.Getenv("DOWNLOADHUB_CLI_DB")
+	if db == "" {
+		db = os.Getenv("OPENCARDGATE_CLI_DB")
+	}
 	if db == "" {
 		db = os.Getenv("CARDGW_CLI_DB")
 	}
@@ -38,7 +41,7 @@ func TestCLIInvalidInputDoesNotTouchDatabase(t *testing.T) {
 		t.Run("args="+joinArgs(args), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "cards.db")
 			cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestCLIHelper$", "--"}, args...)...)
-				cmd.Env = append(os.Environ(), "OPENCARDGATE_CLI_TEST=1", "OPENCARDGATE_CLI_DB="+path)
+				cmd.Env = append(os.Environ(), "DOWNLOADHUB_CLI_TEST=1", "DOWNLOADHUB_CLI_DB="+path)
 				out, err := cmd.CombinedOutput()
 			if err == nil {
 				t.Errorf("invalid input succeeded: %s", out)
@@ -60,7 +63,7 @@ func joinArgs(args []string) string {
 func TestCLIValidPermanentCardPreservesLiteralFilename(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cards.db")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestCLIHelper$", "--", "gencard", "--quota", "2", "--days", "0", "--resource", "pub/a%20b.zip")
-		cmd.Env = append(os.Environ(), "OPENCARDGATE_CLI_TEST=1", "OPENCARDGATE_CLI_DB="+path)
+		cmd.Env = append(os.Environ(), "DOWNLOADHUB_CLI_TEST=1", "DOWNLOADHUB_CLI_DB="+path)
 		if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}

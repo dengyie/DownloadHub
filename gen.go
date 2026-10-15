@@ -32,7 +32,7 @@ func RunGen(args []string, dbPath string) {
 		flagArgs = args[1:]
 	}
 
-	fs := flag.NewFlagSet("opencardgate", flag.ExitOnError)
+	fs := flag.NewFlagSet("downloadhub", flag.ExitOnError)
 	var quota, group, prefix, resource, days, card, db string
 	fs.StringVar(&db, "db", "", "SQLite 数据库路径(默认 ./cards.db)")
 	fs.StringVar(&quota, "quota", "10", "剩余下载次数")
@@ -47,7 +47,7 @@ func RunGen(args []string, dbPath string) {
 	}
 
 	// Validate the complete command before opening (and potentially migrating) a database.
-	fail := func(err error) { fmt.Fprintln(os.Stderr, "opencardgate:", err); os.Exit(1) }
+	fail := func(err error) { fmt.Fprintln(os.Stderr, "downloadhub:", err); os.Exit(1) }
 	if fs.NArg() != 0 {
 		fail(fmt.Errorf("不接受位置参数: %v", fs.Args()))
 	}
@@ -84,7 +84,7 @@ func RunGen(args []string, dbPath string) {
 		}
 	case "listcards":
 		default:
-			fail(fmt.Errorf("用法: opencardgate gencard|listcards|revokecard [参数]"))
+			fail(fmt.Errorf("用法: downloadhub gencard|listcards|revokecard [参数]"))
 	}
 	dbConn, err := openDB(dbPath)
 	if err != nil {

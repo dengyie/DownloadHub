@@ -10,7 +10,7 @@ check:
 	git diff --check
 
 build:
-	go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o opencardgate .
+	go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o downloadhub .
 
 build-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o opencardgate-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o downloadhub-linux-amd64 .

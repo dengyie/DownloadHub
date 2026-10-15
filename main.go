@@ -61,7 +61,7 @@ func main() {
 	}
 }
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "opencardgate serve --config config.yaml | version | gencard | listcards | revokecard")
+	fmt.Fprintln(os.Stderr, "downloadhub serve --config config.yaml | version | gencard | listcards | revokecard")
 }
 func runServer(cfg Config) error {
 	db, err := openDB(cfg.DBPath)
@@ -94,7 +94,7 @@ func runServer(cfg Config) error {
 	server := &http.Server{Addr: cfg.Listen, Handler: h.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
-	slog.Info("opencardgate started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
+		slog.Info("downloadhub started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
 	select {
 	case err = <-result:
 		stop()
