@@ -1,8 +1,9 @@
 import {safeURL} from '../api.js';
 import {el, icon, link, banner, loadingState, errorState, money} from '../dom.js';
+import {pageTitle} from '../site.js';
 
 export async function renderAccount(root, {url, signal, navigate, sitePromise, refreshSite}) {
-  document.title = '我的账户 · MangoQWQ 资源站';
+  document.title = pageTitle('我的账户');
   root.append(loadingState('正在加载账户信息'));
   const site = await sitePromise;
   if (signal.aborted) return;

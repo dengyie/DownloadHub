@@ -2,6 +2,7 @@ import {postJSON, safeReturnPath} from '../api.js';
 import {mountCaptcha} from '../captcha.js';
 import {authSettings, recoveryPath, verificationSettings} from '../auth-model.js';
 import {el, icon, link, button, banner, inputField, loadingState, errorState, setBusy} from '../dom.js';
+import {pageTitle} from '../site.js';
 
 function captcha(action, signal, name = 'captcha_code', label = '图片验证码') {
   const control = inputField(label, name, {
@@ -53,7 +54,7 @@ export async function renderAuth(root, {url, signal, navigate, sitePromise, refr
   const registration = mode === 'register';
   const recovery = mode === 'recovery';
   const title = registration ? '创建你的账户' : recovery ? '找回账户密码' : '欢迎回来';
-  document.title = `${title} · MangoQWQ 资源站`;
+  document.title = pageTitle(title);
   if (registration && !auth.registration_enabled) {
     root.replaceChildren(
       el('div', {className: 'page-heading'}, el('h1', {text: title})),

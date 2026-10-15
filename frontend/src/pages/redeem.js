@@ -1,9 +1,10 @@
 import {postJSON, grantSession} from '../api.js';
 import {el, icon, link, button, banner, inputField, setBusy, copyText} from '../dom.js';
 import {legacyRedemption, redemptionResult, grantExpired} from '../redemption-model.js';
+import {pageTitle} from '../site.js';
 
 export async function renderRedeem(root, {url, signal}) {
-  document.title = '卡密兑换 · MangoQWQ 资源站';
+  document.title = pageTitle('卡密兑换');
   const card = inputField('卡号', 'card', {
     required: true,
     maxlength: 128,

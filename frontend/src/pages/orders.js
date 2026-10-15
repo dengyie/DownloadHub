@@ -13,6 +13,7 @@ import {
   renderRichText,
 } from '../dom.js';
 import {initialOrderKeyword, orderPresentation, pagination} from '../commerce-model.js';
+import {pageTitle} from '../site.js';
 
 const mounts = new WeakMap();
 const displayText = (value) => (value == null || value === '' ? '—' : String(value));
@@ -38,7 +39,7 @@ function busyButton(target, busy, label, name = 'search') {
 
 export async function renderOrders(root, context) {
   if (context.signal?.aborted) return () => {};
-  document.title = '订单查询 · MangoQWQ 资源站';
+  document.title = pageTitle('订单查询');
   mounts.get(root)?.();
   const page = el('div', {className: 'stack'});
   let stopped = false,

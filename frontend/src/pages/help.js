@@ -1,8 +1,9 @@
 import {safeURL} from '../api.js';
 import {el, link, icon} from '../dom.js';
+import {pageTitle} from '../site.js';
 
 export async function renderHelp(root, {sitePromise, signal}) {
-  document.title = '使用帮助 · MangoQWQ 资源站';
+  document.title = pageTitle('使用帮助');
   const sections = [
     [
       'public',

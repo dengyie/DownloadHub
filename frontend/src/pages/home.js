@@ -13,11 +13,12 @@ import {
   renderRichText,
 } from '../dom.js';
 import {categories, categoryIcon, filterPublic, flattenCategories} from '../catalog.js';
+import {HOME_EYEBROW, pageTitle} from '../site.js';
 
 function hero() {
   return el('section', {className: 'hero', 'aria-label': '欢迎来到资源站'}, [
     el('div', {}, [
-      el('p', {className: 'eyebrow', text: 'MANGOQWQ / RESOURCE LIBRARY'}),
+      el('p', {className: 'eyebrow', text: HOME_EYEBROW}),
       el('h1', {}, ['好用的资源，', el('br'), el('em', {text: '都在这里。'})]),
       el('p', {
         className: 'hero-description',
@@ -82,7 +83,7 @@ function productCard(item) {
 }
 
 export async function renderHome(root, {url, signal, sitePromise}) {
-  document.title = 'MangoQWQ 资源站 · 好用的资源，都在这里';
+  document.title = pageTitle('好用的资源，都在这里');
   let category = url.searchParams.get('category') || 'all';
   if (url.pathname.startsWith('/cat/')) category = `shop-${url.pathname.split('/').pop()}`;
   if (url.searchParams.has('cid')) category = `shop-${url.searchParams.get('cid')}`;

@@ -10,14 +10,15 @@ import {renderAuth} from './pages/auth.js';
 import {renderAccount} from './pages/account.js';
 import {renderHelp} from './pages/help.js';
 import {resolveRoute} from './router.js';
+import {SITE_NAME, WORDMARK_MAIN, WORDMARK_SUB} from './site.js';
 
 const app = document.querySelector('#app');
-const brand = () => link('', '/', {className: 'brand-link', 'aria-label': 'MangoQWQ 资源站首页'});
+const brand = () => link('', '/', {className: 'brand-link', 'aria-label': `${SITE_NAME}首页`});
 function brandLink() {
   const anchor = brand();
   anchor.append(
     el('img', {src: '/brand/logo.png', alt: '', width: 37, height: 37}),
-    el('span', {className: 'brand-wordmark'}, ['MangoQWQ', el('small', {text: '资源站'})])
+    el('span', {className: 'brand-wordmark'}, [WORDMARK_MAIN, el('small', {text: WORDMARK_SUB})])
   );
   return anchor;
 }
@@ -70,7 +71,7 @@ const footer = el(
   {className: 'site-footer'},
   el('div', {className: 'container footer-inner'}, [
     el('div', {className: 'footer-left'}, [
-      el('span', {className: 'footer-mark', text: 'MangoQWQ 资源站'}),
+      el('span', {className: 'footer-mark', text: SITE_NAME}),
       el('span', {text: `© ${new Date().getFullYear()} · 好工具，值得被找到。`}),
     ]),
     el('div', {className: 'footer-links'}, [

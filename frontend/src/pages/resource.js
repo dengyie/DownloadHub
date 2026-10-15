@@ -12,6 +12,7 @@ import {
   copyText,
 } from '../dom.js';
 import {categoryName, categoryIcon} from '../catalog.js';
+import {pageTitle} from '../site.js';
 
 export async function renderResource(root, {url, signal}) {
   root.append(
@@ -42,7 +43,7 @@ export async function renderResource(root, {url, signal}) {
   }
   const href = safeURL(item.path, {sameOrigin: true});
   if (!href || !new URL(href).pathname.startsWith('/pub/')) throw new Error('资源下载地址无效');
-  document.title = `${item.name} · MangoQWQ 资源站`;
+  document.title = pageTitle(item.name);
   const status = el('div', {className: 'form-status'});
   const copy = button(
     '复制下载链接',

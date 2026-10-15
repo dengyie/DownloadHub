@@ -39,12 +39,13 @@ import {
   orderPresentation,
   pagination,
 } from '../commerce-model.js';
+import {pageTitle} from '../site.js';
 
 const mounts = new WeakMap();
 
 export async function renderProduct(root, context) {
   if (context.signal?.aborted) return () => {};
-  document.title = '商品详情 · MangoQWQ 资源站';
+  document.title = pageTitle('商品详情');
   mounts.get(root)?.();
   const page = el('div', {className: 'stack'});
   const lifetime = new AbortController();
@@ -127,7 +128,7 @@ export async function renderProduct(root, context) {
       const product = response.data;
       if (!product || typeof product !== 'object' || Number(product.id) !== Number(productID))
         throw new Error('商品详情返回不完整，请重新加载。');
-      document.title = `${String(product.name || '商品详情')} · MangoQWQ 资源站`;
+      document.title = pageTitle(String(product.name || '商品详情'));
       build(product, site);
     } catch (error) {
       if (alive() && version === loadVersion)
