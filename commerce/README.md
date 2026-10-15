@@ -59,9 +59,9 @@ The 2026-10-09 deployment also changed only the asset version in the existing PH
 
 For the actual nginx → PHP chain, use the existing client configuration: `runtime/mode` contains `1`; `runtime/trusted_proxies` contains only `127.0.0.1` and `::1`, one per line. Nginx overwrites X-Real-IP/X-Forwarded-For from its trusted local Cloudflare tunnel and clears CF-Connecting-IP before PHP. Without these files PHP defaults to REMOTE_ADDR, collapsing clients into the loopback proxy and sharing captcha rate limits. Do not trust arbitrary client-supplied headers or a broad CIDR.
 
-`source-baseline.json` pins the reviewed upstream PHP hashes; `null` denotes a new file that must not already exist. `deploy.py` is the one-time pxed migration runner, not a recurring deploy command. It checks those hashes and syntax before stopping the storefront, backs up MySQL and application files, performs a quiesced migration, creates `/var/lib/acg-faka/shop.sqlite`, applies the overlay, verifies a complete SQLite backup, then starts the storefront. It rejects a second run once the destination exists. The operator must retire the MySQL services after verifying there are no other consumers. Original data and cutover exports remain archived.
+`source-baseline.json` pins the reviewed upstream PHP hashes; `null` denotes a new file that must not already exist. Applying the overlay to a running store is an operator procedure, not an automated one: verify every source hash against the baselines, stop the storefront, back up the database and application files, apply only reviewed files, verify a complete SQLite backup, then start the storefront. The historical one-time MySQL cutover and server-specific release runners behind this process are not part of the public tree; the reviewed source hashes they enforce are.
 
-For later code releases, hash-check the currently deployed overlay, preserve a fresh SQLite backup and apply only reviewed files; never run the original one-time migration again. Once the storefront has accepted SQLite writes, restoring the old MySQL backup is not a rollback: it discards new business data. Repair the current SQLite deployment or explicitly reconcile all post-cutover writes.
+For later code releases, hash-check the currently deployed overlay, preserve a fresh SQLite backup and apply only reviewed files; never replay the original one-time migration. Once the storefront has accepted SQLite writes, restoring the old MySQL backup is not a rollback: it discards new business data. Repair the current SQLite deployment or explicitly reconcile all post-cutover writes.
 
 ## Settlement, stock retries and notification delivery
 
@@ -72,26 +72,15 @@ Local balance/free purchases abort their transaction if matching stock is unavai
 The `commerce-maintenance` application worker processes at most 20 pending local orders and 20 due notices per batch, then exits PHP and waits 60 seconds. PHP uses `memory_limit=64M`; this is a PHP allocation limit, not a whole-host RSS guarantee. An exhausted order gets a future retry time so it cannot monopolize the batch. Only the original product/race/SKU is eligible. To explicitly replace a pending selected card (IDs below are examples):
 
 ```sh
-chroot --userspec=33:33 /srv/acg-rootfs php /var/www/html/bin/commerce-maintenance.php --retry-order=123 --replacement-card=456
+php /var/www/html/bin/commerce-maintenance.php --retry-order=123 --replacement-card=456
 ```
 
 Exit 0 means delivered (including an already delivered order), 3 means matching inventory remains unavailable, and 1 means the operation failed. Replacement must match the product and variant. Run without `--replacement-card` to retry the existing selection. The worker automatically retries ordinary stock shortages after replenishment.
 
 Actual delivery enqueues one `order_notification` row in the same transaction, including manual fulfillment. SMTP runs in a separate process after commit with no transaction held. Failed notices remain queued with exponential backoff (60 seconds to 1 hour), and a 5-minute lease allows recovery after process death. SMTP provides no atomic transaction with SQLite: a crash after successful SMTP submission but before acknowledgement may send the same notice again. It cannot reallocate stock or repeat financial writes. Notification rows store order IDs and scheduling state, not duplicate card secrets. Worker logs contain aggregate counts and safe error classes.
 
-## Source-only releases after the SQLite cutover
+## Source-only release discipline
 
-`release.py` checks every overlay file against `release-baseline.json`, lints PHP and shell, checks SQLite integrity and validates worker configuration before stopping application writers. The baseline in this commit describes the preceding reviewed deployment; a later release must deliberately update it from the previous release's verified source hashes. A drift or unexpected file is a hard failure, never an automatic overwrite.
+Every release is source-only and hash-gated. `release-baseline.json` describes the reviewed production source immediately before the latest reviewed release: existing storefront and SQLite overlay files carry their verified deployed hashes, and a target that already contains the release or has drifted deliberately fails the gate. A drift or unexpected file is a hard failure, never an automatic overwrite; review the target and its prior release evidence, then deliberately pin the next baseline from the previous release's verified hashes — never from an unreviewed live tree.
 
-Extract the reviewed `commerce/` package below `/srv/acg-rootfs/tmp/` and run:
-
-```sh
-python3 /srv/acg-rootfs/tmp/RELEASE/commerce/release.py --release-dir /root/cardgw/releases/RELEASE --preflight-only
-python3 /srv/acg-rootfs/tmp/RELEASE/commerce/release.py --release-dir /root/cardgw/releases/RELEASE
-```
-
-The second command is for releases that deliberately require the additive schema/worker procedure below. **Do not use it for the 2026-10-09 captcha/UI-only release:** it invokes `--migrate` and a retention-pruning backup. That release instead reuses the source-hash and atomic-copy checks, saves fresh source/configuration and SQLite snapshots, preserves the exact oldest recurring snapshot outside the pruning scan before restarting backup, and switches PHP plus frontend in one controlled window. No schema or business-data rollback runs. See [the release record](../docs/release-2026-10-09-ui-api.md).
-
-Use a new release directory. The release stops only the storefront, this maintenance worker if running, and download backup; saves a full configured backup plus an independent SQLite snapshot; atomically installs source; applies additive `CommerceSchema`; starts the storefront and maintenance worker; restores backup service even if another service fails. New app directories remain traversable despite private evidence permissions. Only the named worker is updated in Supervisor. Its script/configuration and this release’s evidence directory are added to the recurring backup inventory before the backup service resumes. The database is never restored. Before the storefront can accept requests, failed deployment restores source only; after a start attempt, failures require forward repair because requests may already have written data.
-
-Do not run `deploy.py` again: it is exclusively the historical MySQL cutover. The former MySQL logrotate implementation and test have been removed from this repository; the stopped legacy service is not restarted by releases.
+A conforming release procedure stops only the storefront, the maintenance worker and the database backup; saves a full configured backup plus an independent SQLite snapshot; atomically installs the reviewed source; applies additive `CommerceSchema` migrations when a release deliberately requires them; starts the storefront and maintenance worker; and restores the backup service even if another service fails. Only named worker definitions are updated in the process supervisor, and their script/configuration plus the release evidence directory join the recurring backup inventory before the backup service resumes. The database is never restored by a release. Before the storefront accepts requests, a failed deployment restores source only; after a start attempt, failures require forward repair because requests may already have written data.
