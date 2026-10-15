@@ -94,7 +94,7 @@ func runServer(cfg Config) error {
 	server := &http.Server{Addr: cfg.Listen, Handler: h.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
-		slog.Info("downloadhub started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
+	slog.Info("downloadhub started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
 	select {
 	case err = <-result:
 		stop()

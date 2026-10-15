@@ -83,8 +83,8 @@ func RunGen(args []string, dbPath string) {
 			fail(fmt.Errorf("revokecard 需要 --card"))
 		}
 	case "listcards":
-		default:
-			fail(fmt.Errorf("用法: downloadhub gencard|listcards|revokecard [参数]"))
+	default:
+		fail(fmt.Errorf("用法: downloadhub gencard|listcards|revokecard [参数]"))
 	}
 	dbConn, err := openDB(dbPath)
 	if err != nil {
