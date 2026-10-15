@@ -12,11 +12,11 @@ import (
 // 用法:
 //
 //	# 新模式: 卡绑定具体资源路径列表
-//	cardgw gencard --quota N --resource private/文件A.zip,private/说明.txt [--days D]
+//	downloadhub gencard --quota N --resource private/文件A.zip,private/说明.txt [--days D]
 //	# 旧模式: 卡绑定前缀权限组
-//	cardgw gencard --quota 10 --group vip --prefix /exclusive/ [--days 30]
-//	cardgw listcards
-//	cardgw revokecard --card <id>
+//	downloadhub gencard --quota 10 --group vip --prefix /exclusive/ [--days 30]
+//	downloadhub listcards
+//	downloadhub revokecard --card <id>
 func RunGen(args []string, dbPath string) {
 	if dbPath == "" {
 		dbPath = "./cards.db"

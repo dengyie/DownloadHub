@@ -7,7 +7,7 @@ import {build} from '../build.mjs';
 
 // Build evidence is kept in a private test directory, never over a source tree.
 test('builds are deterministic, self-contained and exclude fixtures/backend sources', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'cardgw-static-build-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'downloadhub-static-build-'));
   const first = await build(path.join(directory, 'first'));
   const second = await build(path.join(directory, 'second'));
   assert.equal(first.version, second.version);
@@ -39,7 +39,7 @@ test('builds are deterministic, self-contained and exclude fixtures/backend sour
 });
 
 test('a symlink output is rejected before overwriting a different destination', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'cardgw-build-safety-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'downloadhub-build-safety-'));
   const destination = path.join(directory, 'unrelated');
   await mkdir(destination);
   await writeFile(path.join(destination, 'index.html'), 'keep this content');

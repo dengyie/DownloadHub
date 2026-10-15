@@ -42,7 +42,7 @@ class Upstream(BaseHTTPRequestHandler):
 class NginxFrontendTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.directory = Path(tempfile.mkdtemp(prefix='cardgw-nginx-boundary-'))
+        cls.directory = Path(tempfile.mkdtemp(prefix='downloadhub-nginx-boundary-'))
         print(f'Isolated nginx evidence: {cls.directory}', flush=True)
         cls.release = 'a' * 24
         cls.shell = b'<!doctype html><title>Isolated frontend acceptance</title>'
@@ -70,7 +70,7 @@ class NginxFrontendTest(unittest.TestCase):
             cls.port = listener.getsockname()[1]
         config = config.replace('listen 127.0.0.1:80;', f'listen 127.0.0.1:{cls.port};')
         config = config.replace('listen [::1]:80;', '')
-        for original, kind in [(8080, 'cardgw'), (8081, 'commerce'), (5244, 'files')]:
+        for original, kind in [(8080, 'downloadhub'), (8081, 'commerce'), (5244, 'files')]:
             server = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
             server.kind = kind
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -160,12 +160,12 @@ class NginxFrontendTest(unittest.TestCase):
                 self.assertNotEqual(body, self.shell)
         self.assertEqual(self.request('/brand/logo.png')[0], 200)
 
-    def test_cardgw_apis_keep_status_method_query_and_no_store(self):
+    def test_api_upstreams_keep_status_method_query_and_no_store(self):
         status, headers, body = self.request('/api/catalog?fixture=1')
-        self.assertEqual(body, b'cardgw:GET:/api/catalog?fixture=1')
+        self.assertEqual(body, b'downloadhub:GET:/api/catalog?fixture=1')
         self.assertEqual(headers.get('cache-control'), 'no-store')
         self.assertEqual(self.request('/api/unknown')[0], 404)
-        self.assertEqual(self.request('/api/redeem', 'POST', 'card=fixture')[2], b'cardgw:POST:/api/redeem')
+        self.assertEqual(self.request('/api/redeem', 'POST', 'card=fixture')[2], b'downloadhub:POST:/api/redeem')
 
     def test_commerce_and_legacy_documents_keep_their_own_csp(self):
         for path in ['/user/api/storefront/bootstrap', '/user/captcha/image', '/user/pay/fixture',

@@ -1,4 +1,4 @@
-module github.com/dengyie/DownloadHub
+module github.com/dengyie/downloadhub
 
 go 1.26.4
 

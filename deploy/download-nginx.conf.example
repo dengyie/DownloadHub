@@ -2,7 +2,7 @@
 # REVIEW ONLY: do not replace unrelated host sites. CF Tunnel ingress MUST target
 # http://localhost:80 (loopback IPv4/IPv6); no other public listener may expose this server block.
 # Only local cloudflared is trusted here; local processes are privileged peers.
-# Build frontend/dist and publish it to this read-only root. cardgw is API-only;
+# Build frontend/dist and publish it to this read-only root. The Go API is API-only;
 # remove the retired frontend_dir/api_only configuration keys on upgrade. This
 # example must be compared with the current production site before deployment.
 log_format download_safe '$remote_addr [$time_local] "$request_method $uri $server_protocol" '

@@ -8,13 +8,10 @@ import (
 )
 
 func TestCLIHelper(t *testing.T) {
-	if os.Getenv("DOWNLOADHUB_CLI_TEST") != "1" && os.Getenv("OPENCARDGATE_CLI_TEST") != "1" && os.Getenv("CARDGW_CLI_TEST") != "1" {
+	if os.Getenv("DOWNLOADHUB_CLI_TEST") != "1" && os.Getenv("CARDGW_CLI_TEST") != "1" {
 		return
 	}
 	db := os.Getenv("DOWNLOADHUB_CLI_DB")
-	if db == "" {
-		db = os.Getenv("OPENCARDGATE_CLI_DB")
-	}
 	if db == "" {
 		db = os.Getenv("CARDGW_CLI_DB")
 	}

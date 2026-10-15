@@ -1,10 +1,8 @@
-# 部署产物
+# 部署产物（cardgw 为更名前的历史二进制名，旧检出兼容）
 downloadhub
 downloadhub-linux-amd64
 cardgw
 cardgw-linux-amd64
-opencardgate
-opencardgate-linux-amd64
 coverage.out
 
 # 本地数据与敏感配置
