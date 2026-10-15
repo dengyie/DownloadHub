@@ -1,18 +1,40 @@
-# 忽略部署产物与本地敏感文件
+# 部署产物
 cardgw
 cardgw-linux-amd64
+opencardgate
+opencardgate-linux-amd64
+coverage.out
+
+# 本地数据与敏感配置
 *.db
-config.yaml
-.DS_Store
 *.db-wal
 *.db-shm
 *.db-journal
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-coverage.out
+config.yaml
 
+# 密钥与证书
+*.key
+*.pem
+*.crt
+*.cert
+*.pfx
+*.p12
+
+# 环境变量与备份日志
+.env
+.env.*
+*.log
+*.log.*
+*.dump
+*.bak
+download-backup.*
+
+# 前端构建与测试产物
 __pycache__/
 frontend/dist/
 frontend/node_modules/
 frontend/test-results/
+.DS_Store

@@ -62,7 +62,7 @@ class NginxFrontendTest(unittest.TestCase):
         config = (Path(__file__).with_name('download-nginx.conf.example')).read_text(encoding='utf-8')
         config = config.replace('/var/www/download-ui/current', str(cls.assets))
         config = config.replace('/data/share/pub/', str(cls.directory / 'public') + '/')
-        config = config.replace('/personal/pxed/nginx/logs/', str(cls.directory / 'logs') + '/')
+        config = config.replace('/var/log/nginx/', str(cls.directory / 'logs') + '/')
         # This port is reserved only while preparing the config. All listeners
         # remain loopback, and nginx startup failure is fatal rather than reused.
         with socket.socket() as listener:
@@ -113,7 +113,7 @@ class NginxFrontendTest(unittest.TestCase):
     def request(self, path, method='GET', body=None, headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
         try:
-            connection.request(method, path, body, {'Host': 'download.mangoqwq.com', **(headers or {})})
+            connection.request(method, path, body, {'Host': 'download.example.com', **(headers or {})})
             response = connection.getresponse()
             return response.status, dict((k.lower(), v) for k, v in response.getheaders()), response.read()
         finally:

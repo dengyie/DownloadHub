@@ -13,7 +13,7 @@ test('URLs reject executable schemes, credentials, protocol-relative links and b
     'https://host.test/\nx',
   ])
     assert.equal(safeURL(input), null);
-  assert.equal(safeURL('/p/文件?sign=x'), 'https://download.mangoqwq.com/p/%E6%96%87%E4%BB%B6?sign=x');
+  assert.equal(safeURL('/p/文件?sign=x'), 'https://download.example.com/p/%E6%96%87%E4%BB%B6?sign=x');
   assert.equal(safeURL('https://other.test/file', {sameOrigin: true}), null);
   assert.equal(safeReturnPath('https://other.test/'), '/user/dashboard/index');
   assert.equal(safeReturnPath('/user/authentication/logout'), '/user/dashboard/index');
@@ -135,7 +135,7 @@ test('encoded controls and network-path return URLs remain outside the navigatio
   assert.equal(safeReturnPath('/%2f%2fevil.test/a'), '/user/dashboard/index');
   assert.equal(
     safeURL('/p/my%20file.zip?sign=safe%3A123'),
-    'https://download.mangoqwq.com/p/my%20file.zip?sign=safe%3A123'
+    'https://download.example.com/p/my%20file.zip?sign=safe%3A123'
   );
 });
 

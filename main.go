@@ -48,7 +48,7 @@ func main() {
 		return
 	}
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	path := fs.String("config", "/root/cardgw/config.yaml", "配置路径")
+	path := fs.String("config", "config.yaml", "配置路径")
 	fs.Parse(args[1:])
 	cfg, err := loadConfig(*path)
 	if err != nil {
@@ -61,7 +61,7 @@ func main() {
 	}
 }
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "cardgw serve --config config.yaml | version | gencard | listcards | revokecard")
+	fmt.Fprintln(os.Stderr, "opencardgate serve --config config.yaml | version | gencard | listcards | revokecard")
 }
 func runServer(cfg Config) error {
 	db, err := openDB(cfg.DBPath)
@@ -94,7 +94,7 @@ func runServer(cfg Config) error {
 	server := &http.Server{Addr: cfg.Listen, Handler: h.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
-	slog.Info("cardgw started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
+	slog.Info("opencardgate started", "version", version, "schema", schemaVersion, "listen", cfg.Listen)
 	select {
 	case err = <-result:
 		stop()

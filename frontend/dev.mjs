@@ -10,9 +10,9 @@ import {resolveRoute} from './src/router.js';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const fixture = process.argv.includes('--fixture');
 const readonly = process.argv.includes('--read-only');
-const port = Number(process.env.CARDGW_FRONTEND_PORT || 4173);
+const port = Number(process.env.OPENCARDGATE_FRONTEND_PORT || process.env.CARDGW_FRONTEND_PORT || 4173);
 const origins = {
-  cardgw: process.env.CARDGW_API_ORIGIN,
+  cardgw: process.env.OPENCARDGATE_API_ORIGIN || process.env.CARDGW_API_ORIGIN,
   commerce: process.env.COMMERCE_API_ORIGIN,
   public: process.env.PUBLIC_FILES_ORIGIN,
 };

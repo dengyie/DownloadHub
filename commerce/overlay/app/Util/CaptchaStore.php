@@ -32,7 +32,7 @@ final class CaptchaStore
     {
         $temporary = realpath(sys_get_temp_dir());
         if ($temporary === false) throw new \RuntimeException('Captcha temporary directory unavailable');
-        $directory = $temporary . '/cardgw-captcha-' . substr(hash('sha256', realpath(BASE_PATH) ?: BASE_PATH), 0, 20);
+        $directory = $temporary . '/opencardgate-captcha-' . substr(hash('sha256', realpath(BASE_PATH) ?: BASE_PATH), 0, 20);
         if (!is_dir($directory) && !@mkdir($directory, 0700) && !is_dir($directory)) {
             throw new \RuntimeException('Cannot create captcha directory');
         }

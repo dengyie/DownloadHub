@@ -25,7 +25,7 @@ export function formFields(value) {
 
 export function safeURL(
   value,
-  {base = globalThis.location?.href || 'https://download.mangoqwq.com/', sameOrigin = false} = {}
+  {base = globalThis.location?.href || 'https://download.example.com/', sameOrigin = false} = {}
 ) {
   if (
     typeof value !== 'string' ||

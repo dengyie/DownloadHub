@@ -32,7 +32,7 @@ func RunGen(args []string, dbPath string) {
 		flagArgs = args[1:]
 	}
 
-	fs := flag.NewFlagSet("cardgw", flag.ExitOnError)
+	fs := flag.NewFlagSet("opencardgate", flag.ExitOnError)
 	var quota, group, prefix, resource, days, card, db string
 	fs.StringVar(&db, "db", "", "SQLite 数据库路径(默认 ./cards.db)")
 	fs.StringVar(&quota, "quota", "10", "剩余下载次数")
@@ -47,7 +47,7 @@ func RunGen(args []string, dbPath string) {
 	}
 
 	// Validate the complete command before opening (and potentially migrating) a database.
-	fail := func(err error) { fmt.Fprintln(os.Stderr, "cardgw:", err); os.Exit(1) }
+	fail := func(err error) { fmt.Fprintln(os.Stderr, "opencardgate:", err); os.Exit(1) }
 	if fs.NArg() != 0 {
 		fail(fmt.Errorf("不接受位置参数: %v", fs.Args()))
 	}
@@ -83,8 +83,8 @@ func RunGen(args []string, dbPath string) {
 			fail(fmt.Errorf("revokecard 需要 --card"))
 		}
 	case "listcards":
-	default:
-		fail(fmt.Errorf("用法: cardgw gencard|listcards|revokecard [参数]"))
+		default:
+			fail(fmt.Errorf("用法: opencardgate gencard|listcards|revokecard [参数]"))
 	}
 	dbConn, err := openDB(dbPath)
 	if err != nil {
@@ -112,7 +112,7 @@ func RunGen(args []string, dbPath string) {
 		}
 		fmt.Println()
 		if len(card.Resources) > 0 {
-			fmt.Printf("兑换页: https://download.mangoqwq.com/redeem\n")
+			fmt.Printf("兑换页: /redeem (或站点域名/redeem)\n")
 		} else {
 			fmt.Printf("下载确认页: /dl%s?card=%s&key=%s\n",
 				card.Prefixes[0], card.CardID, card.Secret)

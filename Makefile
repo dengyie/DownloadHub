@@ -1,4 +1,4 @@
-.PHONY: check check-frontend check-browser check-php build-linux
+.PHONY: check check-frontend check-browser check-php build build-linux
 check:
 	go vet ./...
 	go test -race -count=1 ./...
@@ -9,16 +9,8 @@ check:
 	@test -z "$$(gofmt -l *.go)"
 	git diff --check
 
-check-frontend:
-	npm --prefix frontend test
-	npm --prefix frontend run format:check
-	npm --prefix frontend run build
-
-check-browser:
-	npm --prefix frontend run test:browser
-
-check-php:
-	python3 commerce/tests/run.py
+build:
+	go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o opencardgate .
 
 build-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o cardgw-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o opencardgate-linux-amd64 .

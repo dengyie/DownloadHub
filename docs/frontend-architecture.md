@@ -52,7 +52,7 @@
 
 - `GET /user/captcha/image?action=<scene>` 返回 150×50 PNG、`X-Captcha-Id`（128-bit 随机 base64url）和 no-store；表单只提交配对的 `captcha_id` / `captcha_code`。
 - 四位字符来自 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，不区分大小写，300 秒有效。同场景多图片、多标签页互不覆盖；匹配 scene/IP 的答案尝试在 `BEGIN IMMEDIATE` 事务内单次消费，对错都不能重放。
-- 临时状态在系统临时根下私有 `cardgw-captcha-<应用路径哈希>/challenges.sqlite`，目录 0700、文件 0600，检查 owner/type/link，位于 webroot 外，不写商城库。60 images/IP/300 秒、全局 10,000 条；已消费行保留到过期，不能靠消费绕过限流。存储不可用时明确失败。
+- 临时状态在系统临时根下私有 `opencardgate-captcha-<应用路径哈希>/challenges.sqlite`，目录 0700、文件 0600，检查 owner/type/link，位于 webroot 外，不写商城库。60 images/IP/300 秒、全局 10,000 条；已消费行保留到过期，不能靠消费绕过限流。存储不可用时明确失败。
 - 前端只在图片解码完成后启用输入；10 秒超时覆盖响应、正文和解码等待。刷新/离页中断旧加载、释放 object URL，序列校验拒绝迟到响应。到期禁用提交，用户可主动重试。
 - 覆盖客户登录/注册、发送注册/找回邮件短信、下单、后台登录与账户换绑发送码。邮件/短信最终业务验证码、SSO、TOTP 和订单事务保持原合同。
 - 生产必须通过现有 `Client` 配置读取 nginx 覆盖的 `X-Real-IP`：`runtime/mode=1`，`runtime/trusted_proxies` 仅 `127.0.0.1` 和 `::1`。缺配置的默认模式会把访客归为代理地址；不得放宽代理白名单或直接信任任意来路的请求头。
@@ -76,11 +76,11 @@ npm --prefix frontend run build
 
 生产根为 `/var/www/download-ui/current`，目录必须可被 nginx worker 读取，不能为了托管前端开放 `/root` 权限。候选版本完整校验后原子切换 current；候选包应保留之前仍在使用的指纹目录。HTML `no-store`；指纹静态资源仅在 200/206/304 使用一年 immutable，品牌/公开文件成功响应缓存一天，其余状态明确 `no-store`。仅省略成功缓存头仍会触发浏览器/CDN 的启发式缓存，不能替代错误响应上的 `no-store`。
 
-Cloudflare 的下载站专属 Cache Rule 必须位于共享 `/pub/` 强制缓存规则之后，条件同时限定 `http.host eq "download.mangoqwq.com"` 与 `/pub/` 前缀，`cache=true`、`edge_ttl.mode=respect_origin`、`browser_ttl.mode=respect_origin`。正常文件继续按源站一天缓存，缺失文件应在连续公网请求中保持 404/no-store/BYPASS；仅验证源站或第一次 MISS 不足以验收。不要修改其他主机的共享规则、放宽 WAF 或全区 purge 来掩盖此问题。
+CDN 或 Cloudflare 的下载站专属 Cache Rule 建议位于共享 `/pub/` 强制缓存规则之后，条件同时限定 `http.host eq "download.example.com"` 与 `/pub/` 前缀，`cache=true`、`edge_ttl.mode=respect_origin`、`browser_ttl.mode=respect_origin`。正常文件继续按源站一天缓存，缺失文件应在连续公网请求中保持 404/no-store/BYPASS；仅验证源站或第一次 MISS 不足以验收。不要修改其他主机的共享规则、放宽 WAF 或全区 purge 来掩盖此问题。
 
 Go 配置移除 `frontend_dir`、`api_only`。新旧 Go 的卡密 schema 和事务相同，本次不迁移数据库。PHP 引导文件未变，但验证码后端/调用方/后台模板必须与新前端成套发布，受控停止 PHP 后替换并重启；只覆盖实际不同的文件，保存旧源码和代理配置。PHP `config/app.php` 的资源版本已从 `3.5.7` 改为 `3.5.7-mq.20261009.1`，避免原后台/安全页继续命中旧 JS；这不是升级上游内核。禁止调用历史 MySQL 切换脚本、重放 schema 或绕过 source drift 检查。旧标签页需刷新以使用新验证码协议，不保留旧 session 回退。
 
-先用真实 nginx、私有端口和模拟 API 验证路由，再暂存二进制/配置、保存源码与一致性 SQLite 备份，成套切换前端/PHP/nginx 和 Go。新静态根必须纳入常规备份；重启备份进程前精确保留会被 retention 淘汰的旧快照，不能因发布额外删除备份。回滚只恢复本次源码/二进制/配套配置/前端指向，不能恢复旧数据库丢弃新增业务。具体发布事实见 [验收记录](release-2026-10-09-ui-api.md)。
+先用真实 nginx、私有端口和模拟 API 验证路由，再暂存二进制/配置、保存源码与一致性 SQLite 备份，成套切换前端/PHP/nginx 和 Go。新静态根必须纳入常规备份；重启备份进程前精确保留会被 retention 淘汰的旧快照，不能因发布额外删除备份。回滚只恢复本次源码/二进制/配套配置/前端指向，不能恢复旧数据库丢弃新增业务。
 
 ## 验证
 

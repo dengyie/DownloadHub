@@ -1,6 +1,6 @@
 # Keep credentials in a restricted local file; never commit the filled config.
 listen: "127.0.0.1:8080"
-db_path: "/root/cardgw/cards.db"
+db_path: "./cards.db"
 openlist_url: "http://127.0.0.1:5244"
 openlist_admin_user: "admin"
 openlist_admin_pass: "CHANGE_ME"
@@ -13,7 +13,7 @@ grant_window_seconds: 600
 openlist_min_url_ttl_seconds: 0
 # Exact allowed host[:port] of absolute signed URLs. Relative URLs are supported.
 # Add actual externally reachable storage hosts after verifying the backend.
-download_hosts: ["download.mangoqwq.com"]
+download_hosts: ["download.example.com"]
 # Only the reviewed loopback nginx can supply X-Real-IP; default is trust nobody.
 trusted_proxy_cidrs: ["127.0.0.1/32"]
 # No quota is charged for resources under a public static alias.

@@ -1,4 +1,4 @@
-module cardgw
+module github.com/dengyie/opencardgate
 
 go 1.26.4
 
