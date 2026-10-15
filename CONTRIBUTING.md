@@ -8,20 +8,21 @@ Thank you for your interest in contributing to **DownloadHub**! We welcome contr
 - **Go 1.26+**
 - **Node.js 22+** (for frontend static building and unit tests)
 - **Python 3.10+** (for deployment and boundary test suites)
+- **PHP 8.2** with `bcmath`, `pdo_sqlite`, `sqlite3`, `mbstring`, `curl`, `gd`, `zip`, `openssl` (for the commerce suite; a missing runtime fails `make check` instead of skipping it)
+- **nginx** (optional; the isolated routing acceptance tests skip automatically when it is absent)
+- **Playwright Chromium** (`npx --prefix frontend playwright install chromium`) for browser tests
 
 ### Running Tests Locally
 Before submitting a pull request, ensure all tests pass:
 
 ```bash
-# Run unit tests with race detection
-go test -race -count=1 ./...
+# Run the complete quality gate (same as CI)
+make check
 
-# Verify code style and formatting
-go vet ./...
-test -z "$(gofmt -l *.go)"
-
-# Run frontend tests
-npm --prefix frontend test
+# Or run individual suites:
+go test -race -count=1 ./...       # Go unit tests with race detection
+go vet ./... && test -z "$(gofmt -l *.go)"   # Go style and formatting
+npm --prefix frontend test         # frontend unit tests
 npm --prefix frontend run format:check
 npm --prefix frontend run build
 ```

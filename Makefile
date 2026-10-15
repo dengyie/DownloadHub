@@ -11,13 +11,14 @@ check:
 
 check-frontend:
 	npm --prefix frontend test
+	npm --prefix frontend run format:check
 	npm --prefix frontend run build
 
 check-browser:
-	@if [ -d "frontend/node_modules/@playwright" ]; then npm --prefix frontend run test:browser; else echo "Playwright not installed, skipping browser tests"; fi
+	npm --prefix frontend run test:browser
 
 check-php:
-	@if command -v php >/dev/null 2>&1; then python3 commerce/tests/run.py; else echo "PHP not found, skipping commerce test suite"; fi
+	python3 commerce/tests/run.py
 
 build:
 	go build -trimpath -ldflags "-X main.version=$$(git describe --always --dirty)" -o downloadhub .

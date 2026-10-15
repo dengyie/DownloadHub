@@ -43,7 +43,7 @@
   1. *Redeem 验卡*：验证卡号/密钥有效性及可用资源列表，发放内存短效凭证，**不扣额度**；
   2. *Grant 签发*：用户明确点击下载后才进入事务扣除额度并签发短时存储签名；网络异常可凭原凭据**幂等恢复**，绝不二次扣减。
 - **多模式发卡支持**：支持按具体资源文件绑定（`--resource`）或路径前缀批量授权（`--prefix`），支持设定次数或永久有效。
-- **防刷限流与人机验证**：内置 IP 滑动窗口速率限制与基于 SQLite 的独立 ID 图像验证码系统，有效防御自动化恶意扫卡。
+- **防刷限流**：内置进程内 IP 固定窗口速率限流（单实例适用，多实例部署应上移到 nginx/Redis），有效防御自动化恶意扫卡；可选的 PHP 商城模块（`commerce/`）另提供基于 SQLite 的独立 ID 图像验证码。
 
 ### ⚡ 极速与安全分发 (Secure Distribution)
 - **源站零暴露**：后端动态向上游存储请求生成带有效期的签名链接，外部访客完全接触不到真实文件存储桶凭证。
@@ -114,18 +114,19 @@ make build-linux
 cp config.yaml.example config.yaml
 ```
 
-编辑 `config.yaml` 关键字段：
+编辑 `config.yaml` 关键字段（⚠️ `openlist_admin_pass` 与 `openlist_min_url_ttl_seconds` 为必改项，后者为 `0` 时服务会拒绝启动）：
 ```yaml
 listen: "127.0.0.1:8080"
 db_path: "./cards.db"
 openlist_url: "http://127.0.0.1:5244"
 openlist_admin_user: "admin"
-openlist_admin_pass: "your_password"
+openlist_admin_pass: "your_password"   # 必改：OpenList 管理员密码
 
 # 兑换后在途凭据有效期（秒）
 grant_window_seconds: 600
 
-# 存储签名最短有效剩余时间（秒，防止发出即将失效的外链）
+# 必改：存储签名外链的最短剩余有效期（秒，防止发出即将失效的外链）
+# 取 0 会故意拒绝启动；需 >= grant_window_seconds 且 <= 86400
 openlist_min_url_ttl_seconds: 3600
 
 # 允许签发的外链域名白名单
@@ -179,16 +180,16 @@ trusted_proxy_cidrs: ["127.0.0.1/32"]
 
 ## 🧪 自动化测试套件
 
-全站配有覆盖严格边界与高并发竞态的测试套件：
+全站配有覆盖严格边界与高并发竞态的测试套件。`make check` 与 CI 完全一致，缺失依赖会直接失败而不是静默跳过：
 
 ```bash
-# 运行完整质量门禁
+# 运行完整质量门禁（需 Go / Node 22+ / Python 3 / PHP 8.2+ 扩展 / Playwright）
 make check
 
 # 单独运行 Go 后端单元测试（带 -race 竞态检测）
 go test -race -count=1 ./...
 
-# 运行前端测试与代码规范检查
+# 单独运行前端测试、格式检查与构建
 make check-frontend
 ```
 
@@ -216,6 +217,12 @@ go build -o downloadhub .
 # 3. Start server
 ./downloadhub serve --config config.yaml
 ```
+
+---
+
+## 🎨 自定义站点品牌
+
+前端品牌字样集中维护在 [frontend/src/site.js](frontend/src/site.js)（站点名、导航字标、首页眉标），配合 `frontend/index.html` 的静态默认值（首屏 JS 加载前的标题）与 `brand/` 下的 Logo/图标资源即可整体换牌，无需改动任何页面代码。默认站点名保留为演示站点品牌，属项目作者所有；复用时请替换为你自己的品牌与资源。
 
 ---
 
